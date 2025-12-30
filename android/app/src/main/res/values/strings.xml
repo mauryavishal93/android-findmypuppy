@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">FindMyPuppy</string>
+    <string name="title_activity_main">FindMyPuppy</string>
+    <string name="package_name">com.example.findmypuppy</string>
+    <string name="custom_url_scheme">com.example.findmypuppy</string>
+</resources>
