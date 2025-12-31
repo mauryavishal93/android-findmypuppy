@@ -57,6 +57,51 @@ const purchaseHistorySchema = new mongoose.Schema({
 
 const PurchaseHistory = mongoose.model('PurchaseHistory', purchaseHistorySchema);
 
+// Price Offer Schema
+const priceOfferSchema = new mongoose.Schema({
+  hintPack: { type: String, required: true, unique: true }, // e.g., "100 Hints Pack"
+  marketPrice: { type: Number, required: true }, // Original price
+  offerPrice: { type: Number, required: true }, // Current offer price
+  hintCount: { type: Number, required: true }, // Number of hints in this pack
+  offerReason: { type: String, default: 'Special Offer' } // Reason for the offer (e.g., "Special Offer", "Limited Time Deal", etc.)
+}, { collection: 'priceOffer' });
+
+const PriceOffer = mongoose.model('PriceOffer', priceOfferSchema);
+
+// Initialize default price offer on server start
+const initializePriceOffer = async () => {
+  try {
+    const existingOffer = await PriceOffer.findOne({ hintPack: '100 Hints Pack' });
+    if (!existingOffer) {
+        const defaultOffer = new PriceOffer({
+          hintPack: '100 Hints Pack',
+          marketPrice: 99,
+          offerPrice: 9,
+          hintCount: 100,
+          offerReason: 'Special Offer'
+        });
+      await defaultOffer.save();
+      console.log('✅ Default price offer initialized in database');
+    } else {
+      // Update existing offer to add offerReason field if it doesn't exist
+      if (!existingOffer.offerReason) {
+        existingOffer.offerReason = 'Special Offer';
+        await existingOffer.save();
+        console.log('✅ Updated existing price offer with offerReason field');
+      } else {
+        console.log('ℹ️ Price offer already exists in database with offerReason');
+      }
+    }
+  } catch (error) {
+    console.error('⚠️ Error initializing price offer:', error);
+  }
+};
+
+// Run initialization after mongoose connection is established
+mongoose.connection.once('open', () => {
+  initializePriceOffer();
+});
+
 // --- ROUTES ---
 
 app.get('/api/health', (req, res) => {
@@ -366,7 +411,7 @@ app.post('/api/purchase-history', async (req, res) => {
     if (error.code === 11000) {
       return res.status(409).json({ success: false, message: "Purchase ID already exists." });
     }
-    res.status(500).json({ success: false, message: "Seƒory." });
+    res.status(500).json({ success: false, message: "Server error creating purchase history." });
   }
 });
 
@@ -422,6 +467,103 @@ app.get('/api/user/:username', async (req, res) => {
   } catch (error) {
     console.error('Get User Error:', error);
     res.status(500).json({ success: false, message: "Server error fetching user data." });
+  }
+});
+
+// Get Price Offer Endpoint
+app.get('/api/price-offer', async (req, res) => {
+  try {
+    const offer = await PriceOffer.findOne({ hintPack: '100 Hints Pack' });
+    
+    if (!offer) {
+      // Return default values if no offer exists in DB
+      return res.status(200).json({
+        success: true,
+        offer: {
+          hintPack: '100 Hints Pack',
+          marketPrice: 99,
+          offerPrice: 9,
+          hintCount: 100,
+          offerReason: 'Special Offer'
+        }
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      offer: {
+        hintPack: offer.hintPack,
+        marketPrice: offer.marketPrice,
+        offerPrice: offer.offerPrice,
+        hintCount: offer.hintCount,
+        offerReason: offer.offerReason || 'Special Offer'
+      }
+    });
+  } catch (error) {
+    console.error('Get Price Offer Error:', error);
+    res.status(500).json({ success: false, message: "Server error fetching price offer." });
+  }
+});
+
+// Create/Update Price Offer Endpoint (Admin)
+app.post('/api/price-offer', async (req, res) => {
+  try {
+    const { hintPack, marketPrice, offerPrice, hintCount, offerReason } = req.body;
+
+    if (!hintPack || marketPrice === undefined || offerPrice === undefined || hintCount === undefined) {
+      return res.status(400).json({ success: false, message: "hintPack, marketPrice, offerPrice, and hintCount are required." });
+    }
+
+    const updateData = { hintPack, marketPrice, offerPrice, hintCount };
+    if (offerReason !== undefined) {
+      updateData.offerReason = offerReason;
+    }
+
+    const offer = await PriceOffer.findOneAndUpdate(
+      { hintPack },
+      updateData,
+      { upsert: true, new: true }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Price offer updated successfully!",
+      offer: {
+        hintPack: offer.hintPack,
+        marketPrice: offer.marketPrice,
+        offerPrice: offer.offerPrice,
+        hintCount: offer.hintCount,
+        offerReason: offer.offerReason || 'Special Offer'
+      }
+    });
+  } catch (error) {
+    console.error('Create/Update Price Offer Error:', error);
+    res.status(500).json({ success: false, message: "Server error updating price offer." });
+  }
+});
+
+// Migration endpoint to add offerReason to existing price offers
+app.post('/api/price-offer/migrate', async (req, res) => {
+  try {
+    const offers = await PriceOffer.find({});
+    let updatedCount = 0;
+    
+    for (const offer of offers) {
+      if (!offer.offerReason) {
+        offer.offerReason = 'Special Offer';
+        await offer.save();
+        updatedCount++;
+      }
+    }
+    
+    res.status(200).json({
+      success: true,
+      message: `Migration completed. Updated ${updatedCount} price offer(s) with offerReason field.`,
+      updatedCount
+    });
+  } catch (error) {
+    console.error('Migration Error:', error);
+    res.status(500).json({ success: false, message: "Server error during migration." });
   }
 });
 

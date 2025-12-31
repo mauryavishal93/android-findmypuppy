@@ -8,14 +8,24 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
-    // IMPORTANT for Capacitor: Use relative paths
-    base: './',
     define: {
       'process.env.API_KEY': JSON.stringify(env.API_KEY),
     },
-    build: {
-      outDir: 'dist',
-      emptyOutDir: true,
+    server: {
+      host: true,
+      allowedHosts: true,
+      proxy: {
+        // Forward all requests starting with /api to the Express server
+        '/api': {
+          target: 'https://findmypuppy.onrender.com',
+          changeOrigin: true,
+          secure: false,
+        },
+      },
+    },
+    preview: {
+      host: true,
+      allowedHosts: true,
     }
   }
 })

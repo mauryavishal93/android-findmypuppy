@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { PaymentStatus } from '../types/payment';
+import { PriceOffer } from '../services/db';
 
 interface UsePaymentProps {
-  onPaymentSuccess: (hints: number, paymentId: number) => void;
+  onPaymentSuccess: (hints: number, paymentId: number, amount: number) => void;
   playSfx: (type: 'pay') => void;
+  priceOffer: PriceOffer | null;
 }
 
-export const usePayment = ({ onPaymentSuccess, playSfx }: UsePaymentProps) => {
+export const usePayment = ({ onPaymentSuccess, playSfx, priceOffer }: UsePaymentProps) => {
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('idle');
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentModalConfig, setPaymentModalConfig] = useState<{title?: string, description?: string}>({});
@@ -23,12 +25,16 @@ export const usePayment = ({ onPaymentSuccess, playSfx }: UsePaymentProps) => {
     paymentIdRef.current += 1;
     setPaymentStatus('processing');
 
+    // Use price offer values if available, otherwise fallback to defaults
+    const offerPrice = priceOffer?.offerPrice || 9.0;
+    const hintPack = priceOffer?.hintPack || '100 Hints Pack';
+
     // UPI Configuration
     const upiId = 'mauryavishal93-1@okaxis';
     const payeeName = 'Vishal Maurya';
     const aid = 'uGICAgIDA3qHVVA';
-    const transactionNote = '100 Hints Pack';
-    const amount = '9.00';
+    const transactionNote = hintPack;
+    const amount = offerPrice.toFixed(2);
     const currency = 'INR';
 
     // Construct UPI Deep Link
@@ -53,9 +59,11 @@ export const usePayment = ({ onPaymentSuccess, playSfx }: UsePaymentProps) => {
          setPaymentStatus('verifying');
          
          // Simulate network verification (Auto-Success)
+         const hintCount = priceOffer?.hintCount || 100;
+         const offerPrice = priceOffer?.offerPrice || 9.0;
          setTimeout(() => {
              playSfx('pay');
-            onPaymentSuccess(100, paymentIdRef.current);
+            onPaymentSuccess(hintCount, paymentIdRef.current, offerPrice);
              setPaymentStatus('idle');
              setShowPaymentModal(false);
          }, 3000);

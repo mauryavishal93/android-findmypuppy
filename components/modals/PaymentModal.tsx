@@ -1,5 +1,6 @@
 import React from 'react';
 import { PaymentStatus } from '../../types/payment';
+import { PriceOffer } from '../../services/db';
 
 interface PaymentModalProps {
   onClose: () => void;
@@ -10,6 +11,7 @@ interface PaymentModalProps {
   onCancelPayment: () => void;
   title?: string;
   description?: string;
+  priceOffer: PriceOffer | null;
 }
 
 export const PaymentModal: React.FC<PaymentModalProps> = ({ 
@@ -20,8 +22,18 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   paymentStatus, 
   onCancelPayment,
   title,
-  description
+  description,
+  priceOffer
 }) => {
+  // Use price offer values if available, otherwise fallback to defaults
+  const marketPrice = priceOffer?.marketPrice || 99;
+  const offerPrice = priceOffer?.offerPrice || 9;
+  const hintCount = priceOffer?.hintCount || 100;
+  const offerReason = priceOffer?.offerReason || 'Special Offer';
+  const hasOffer = marketPrice !== offerPrice;
+  
+  // Calculate discount percentage
+  const discountPercent = hasOffer ? Math.round(((marketPrice - offerPrice) / marketPrice) * 100) : 0;
   
   if (paymentStatus === 'processing' || paymentStatus === 'verifying') {
     return (
@@ -97,21 +109,31 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
           onClick={onPay}
           className="w-full bg-gradient-to-r from-yellow-400 to-yellow-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-yellow-200 hover:scale-105 transition-transform mb-3 flex items-center justify-between px-4 relative overflow-hidden"
         >
-          {/* Tag */}
-          <div className="absolute top-0 right-0 bg-red-500 text-white text-[9px] font-black px-2 py-0.5 rounded-bl-lg">
-             91% OFF
-          </div>
+          {/* Tag - only show if there's an offer */}
+          {hasOffer && discountPercent > 0 && (
+            <div className="absolute top-0 right-0 bg-red-500 text-white text-[9px] font-black px-2 py-0.5 rounded-bl-lg">
+              {discountPercent}% OFF
+            </div>
+          )}
 
           <div className="flex flex-col items-start leading-none">
-             <span className="text-[10px] opacity-90 font-bold text-yellow-50 mb-0.5 uppercase tracking-wide">Special Offer</span>
+             {hasOffer && (
+               <span className="text-[10px] opacity-90 font-bold text-yellow-50 mb-0.5 uppercase tracking-wide">{offerReason}</span>
+             )}
              <div className="flex items-center gap-2">
-               <span className="text-xs text-yellow-200/80 line-through decoration-red-500/80 decoration-2 font-medium">₹99</span>
-               <span className="text-2xl font-black drop-shadow-sm">₹9</span>
+               {hasOffer ? (
+                 <>
+                   <span className="text-[10px] text-yellow-200/80 line-through decoration-red-500/80 decoration-2 font-medium">₹{marketPrice}</span>
+                   <span className="text-2xl font-black drop-shadow-sm">₹{offerPrice}</span>
+                 </>
+               ) : (
+                 <span className="text-2xl font-black drop-shadow-sm">₹{offerPrice}</span>
+               )}
              </div>
           </div>
           <div className="text-right">
              <div className="text-[10px] opacity-90">Get</div>
-             <div className="font-black text-lg leading-none">+100 Hints</div>
+             <div className="font-black text-lg leading-none">+{hintCount} Hints</div>
           </div>
         </button>
         

@@ -45,7 +45,7 @@ export const InfoModal: React.FC<InfoModalProps> = ({ onClose }) => (
                  <div className="col-span-3 text-xs text-slate-600 space-y-1">
                     <div className="flex items-center gap-2"><i className="fas fa-clock w-4 text-center text-slate-400"></i> <span>No Timer (Relaxed)</span></div>
                     <div className="flex items-center gap-2"><i className="fas fa-paw w-4 text-center text-slate-400"></i> <span>15-25 Pups</span></div>
-                    <div className="flex items-center gap-2"><i className="fas fa-star w-4 text-center text-yellow-500"></i> <span>+10 Points / Level</span></div>
+                    <div className="flex items-center gap-2"><i className="fas fa-star w-4 text-center text-yellow-500"></i> <span>+5 Points / Level</span></div>
                  </div>
               </div>
               {/* Medium */}
@@ -54,7 +54,7 @@ export const InfoModal: React.FC<InfoModalProps> = ({ onClose }) => (
                  <div className="col-span-3 text-xs text-slate-600 space-y-1">
                     <div className="flex items-center gap-2"><i className="fas fa-clock w-4 text-center text-slate-400"></i> <span>150 Seconds (2m 30s)</span></div>
                     <div className="flex items-center gap-2"><i className="fas fa-paw w-4 text-center text-slate-400"></i> <span>25-35 Pups</span></div>
-                    <div className="flex items-center gap-2"><i className="fas fa-star w-4 text-center text-yellow-500"></i> <span>+20 Points / Level</span></div>
+                    <div className="flex items-center gap-2"><i className="fas fa-star w-4 text-center text-yellow-500"></i> <span>+10 Points / Level</span></div>
                  </div>
               </div>
               {/* Hard */}
@@ -63,7 +63,7 @@ export const InfoModal: React.FC<InfoModalProps> = ({ onClose }) => (
                  <div className="col-span-3 text-xs text-slate-600 space-y-1">
                     <div className="flex items-center gap-2"><i className="fas fa-clock w-4 text-center text-slate-400"></i> <span>180 Seconds (3m)</span></div>
                     <div className="flex items-center gap-2"><i className="fas fa-paw w-4 text-center text-slate-400"></i> <span>40-50 Pups (Tiny!)</span></div>
-                    <div className="flex items-center gap-2"><i className="fas fa-star w-4 text-center text-yellow-500"></i> <span>+50 Points / Level</span></div>
+                    <div className="flex items-center gap-2"><i className="fas fa-star w-4 text-center text-yellow-500"></i> <span>+15 Points / Level</span></div>
                  </div>
               </div>
            </div>

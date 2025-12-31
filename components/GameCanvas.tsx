@@ -36,6 +36,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   // Start with a very low min zoom to ensure we don't block zooming out before calculation
   const minZoomRef = useRef(0.1); 
   const prevShowHintsRef = useRef(showHints);
+  // Track which specific puppies should be highlighted (1-2 max)
+  const [highlightedPuppyIds, setHighlightedPuppyIds] = useState<Set<string>>(new Set());
   
   // Track the last loaded background to prevent re-triggering loading on game updates (like finding a puppy)
   const prevBgRef = useRef<string | null>(null);
@@ -175,7 +177,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     }
   }, [loadingState]);
 
-  // Auto-scroll to hidden puppies when hint is activated
+  // Auto-scroll to hidden puppies when hint is activated and select 1-2 to highlight
   useEffect(() => {
     // Check if hint was just activated (transition from false -> true)
     if (showHints && !prevShowHintsRef.current && scrollContainerRef.current) {
@@ -185,11 +187,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       const hiddenPuppies = puppies.filter(p => !p.isFound);
       
       if (hiddenPuppies.length > 0) {
-        // Check if any are visible in the current viewport
         // Use a margin to ensure the puppy is not just on the edge
-        const margin = 50; 
+        const margin = 50;
         
-        const isAnyVisible = hiddenPuppies.some(p => {
+        // Find puppies visible in current viewport
+        const visiblePuppies = hiddenPuppies.filter(p => {
           const px = (p.x / 100) * MAP_SIZE * zoom;
           const py = (p.y / 100) * MAP_SIZE * zoom;
           return (
@@ -200,19 +202,66 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           );
         });
 
-        // If no hidden puppies are visible, scroll to the first one found
-        if (!isAnyVisible) {
-          const target = hiddenPuppies[0];
+        let puppiesToHighlight: Puppy[] = [];
+        
+        if (visiblePuppies.length > 0) {
+          // If only 1 puppy is visible, highlight only that 1
+          if (visiblePuppies.length === 1) {
+            puppiesToHighlight = visiblePuppies;
+          } 
+          // If 2+ puppies are visible, highlight maximum 2 (randomly select 2 if more than 2)
+          else {
+            const shuffled = [...visiblePuppies].sort(() => Math.random() - 0.5);
+            puppiesToHighlight = shuffled.slice(0, 2); // Always select exactly 2 if 2+ are visible
+          }
+        } else {
+          // No puppies visible - scroll to find some and highlight 1-2
+          // Find puppies near the center of the map or pick a random one
+          const target = hiddenPuppies[Math.floor(Math.random() * hiddenPuppies.length)];
           const targetX = (target.x / 100) * MAP_SIZE * zoom;
           const targetY = (target.y / 100) * MAP_SIZE * zoom;
 
+          // Find other puppies near the target (within reasonable distance)
+          const searchRadius = Math.min(clientWidth, clientHeight) * 0.8; // 80% of viewport
+          const nearbyPuppies = hiddenPuppies.filter(p => {
+            const px = (p.x / 100) * MAP_SIZE * zoom;
+            const py = (p.y / 100) * MAP_SIZE * zoom;
+            const distance = Math.sqrt(
+              Math.pow(px - targetX, 2) + Math.pow(py - targetY, 2)
+            );
+            return distance <= searchRadius;
+          });
+
+          // Select puppies to highlight based on availability
+          // If only target is nearby, highlight only 1; if 2+ nearby, highlight max 2
+          let puppiesToHighlight: Puppy[] = [target];
+          const others = nearbyPuppies.filter(p => p.id !== target.id);
+          if (others.length > 0) {
+            // If there are other nearby puppies, add exactly 1 more (max 2 total)
+            const randomOther = others[Math.floor(Math.random() * others.length)];
+            puppiesToHighlight.push(randomOther);
+          }
+          // If only target exists, puppiesToHighlight already has just 1 puppy
+
+          // Set highlights immediately
+          setHighlightedPuppyIds(new Set(puppiesToHighlight.map(p => p.id)));
+
+          // Scroll to center the target puppy
           container.scrollTo({
             left: targetX - clientWidth / 2,
             top: targetY - clientHeight / 2,
             behavior: 'smooth'
           });
+          
+          return; // Exit early
         }
+
+        // Set highlighted puppies immediately if we found visible ones
+        setHighlightedPuppyIds(new Set(puppiesToHighlight.map(p => p.id)));
       }
+    } else if (!showHints) {
+      // Clear highlights when hints are turned off
+      setHighlightedPuppyIds(new Set());
     }
     prevShowHintsRef.current = showHints;
   }, [showHints, puppies, zoom]);
@@ -295,8 +344,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
   // Camouflage logic helper
   const getPuppyStyles = (puppy: Puppy) => {
-    // If hints are active and puppy isn't found, make it very visible
-    if (showHints && !puppy.isFound) {
+    // If hints are active, only highlight the selected puppies (1-2 max)
+    if (showHints && !puppy.isFound && highlightedPuppyIds.has(puppy.id)) {
       return {
         mixBlendMode: 'normal' as const,
         opacity: 1,

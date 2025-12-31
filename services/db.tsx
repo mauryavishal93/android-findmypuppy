@@ -4,10 +4,11 @@
 // ------------------------------------------------------------------
 
 // API Base URL Configuration:
-// - For Android Emulator: use "http://10.0.2.2:5174" (10.0.2.2 is the Android emulator's alias for host machine's localhost)
-// - For Physical Device: use your computer's local IP address (e.g., "http://192.168.1.100:5174") - find it with `ipconfig` (Windows) or `ifconfig` (Mac/Linux)
-// - For Production: use your deployed backend URL (e.g., "https://your-backend.onrender.com")
-const API_BASE_URL = "https://findmypuppydb.onrender.com";
+// Production backend server - all API calls will be made to this server
+// For local development/testing, you can temporarily change this to:
+// - Android Emulator: "http://10.0.2.2:5174" (10.0.2.2 is the Android emulator's alias for host machine's localhost)
+// - Physical Device: your computer's local IP address (e.g., "http://192.168.1.100:5174")
+const API_BASE_URL = "https://findmypuppy.onrender.com";
 
 export interface User {
   username: string;

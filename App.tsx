@@ -16,7 +16,7 @@ import { useTimer } from './hooks/useTimer';
 import { usePayment } from './hooks/usePayment';
 import { useHints } from './hooks/useHints';
 import { useAudio } from './hooks/useAudio';
-import { db } from './services/db';
+import { db, PriceOffer } from './services/db';
 
 export default function App() {
   const [view, setView] = useState<'LOGIN' | 'HOME' | 'LEVEL_SELECT' | 'GAME' | 'WIN' | 'GAME_OVER'>('LOGIN');
@@ -38,6 +38,9 @@ export default function App() {
 
   // Track last processed payment ID to avoid duplicate history entries
   const lastProcessedPaymentIdRef = useRef<number | null>(null);
+
+  // Price Offer State
+  const [priceOffer, setPriceOffer] = useState<PriceOffer | null>(null);
 
   const [progress, setProgress] = useState<UserProgress>(() => {
     const saved = localStorage.getItem('findMyPuppy_progress');
@@ -73,6 +76,33 @@ export default function App() {
   });
 
   // --- DATA SYNCHRONIZATION HELPERS ---
+
+  // Fetch price offer from database
+  const fetchPriceOffer = useCallback(async () => {
+    try {
+      const response = await db.getPriceOffer();
+      if (response.success && response.offer) {
+        setPriceOffer(response.offer);
+      } else {
+        // Fallback to default if fetch fails
+        setPriceOffer({
+          hintPack: '100 Hints Pack',
+          marketPrice: 99,
+          offerPrice: 9,
+          hintCount: 100
+        });
+      }
+    } catch (error) {
+      console.error("Failed to fetch price offer:", error);
+      // Fallback to default on error
+      setPriceOffer({
+        hintPack: '100 Hints Pack',
+        marketPrice: 99,
+        offerPrice: 9,
+        hintCount: 100
+      });
+    }
+  }, []);
 
   const syncUserData = useCallback(async (username: string) => {
     if (!username) return;
@@ -116,7 +146,7 @@ export default function App() {
     }
   }, []);
 
-  const handlePaymentSuccess = useCallback((hints: number, paymentId: number) => {
+  const handlePaymentSuccess = useCallback((hints: number, paymentId: number, amount: number) => {
     // Deduplicate by paymentId: if we've already processed this, ignore
     if (lastProcessedPaymentIdRef.current === paymentId) {
       return;
@@ -133,9 +163,10 @@ export default function App() {
           console.error('Failed to update hints in database:', err);
         });
 
+        // Use amount passed from payment success (which uses offerPrice from DB)
         db.createPurchaseHistory(
           prev.playerName,
-          9.0, // Amount for 100 hints pack
+          amount,
           'Hints',
           `${hints} Hints Pack`,
           'Money'
@@ -146,7 +177,7 @@ export default function App() {
 
       return { ...prev, premiumHints: newHints };
     });
-  }, []);
+  }, [priceOffer]);
 
   const {
     paymentStatus,
@@ -158,7 +189,8 @@ export default function App() {
     closePaymentModal
   } = usePayment({
     onPaymentSuccess: handlePaymentSuccess,
-    playSfx: (type) => playSfx(type, isMuted)
+    playSfx: (type) => playSfx(type, isMuted),
+    priceOffer: priceOffer
   });
 
   const handleOutOfHints = useCallback(() => {
@@ -182,6 +214,16 @@ export default function App() {
   });
 
   // --- EFFECTS ---
+
+  // Fetch price offer on mount
+  useEffect(() => {
+    fetchPriceOffer();
+  }, [fetchPriceOffer]);
+
+  // Fetch price offer when view changes (app load, refresh, open game, come back from game)
+  useEffect(() => {
+    fetchPriceOffer();
+  }, [view, fetchPriceOffer]);
 
   // Restore session: if a playerName is present, stay logged in and sync data
   useEffect(() => {
@@ -273,9 +315,9 @@ export default function App() {
     let pointsAwarded = 0;
     
     if (isFirstClear) {
-      if (selectedDifficulty === Difficulty.EASY) pointsAwarded = 10;
-      if (selectedDifficulty === Difficulty.MEDIUM) pointsAwarded = 20;
-      if (selectedDifficulty === Difficulty.HARD) pointsAwarded = 50;
+      if (selectedDifficulty === Difficulty.EASY) pointsAwarded = 5;
+      if (selectedDifficulty === Difficulty.MEDIUM) pointsAwarded = 10;
+      if (selectedDifficulty === Difficulty.HARD) pointsAwarded = 15;
     }
 
     setProgress(prev => {
@@ -405,10 +447,15 @@ export default function App() {
   const toggleMute = () => setIsMuted(prev => !prev);
 
   return (
-    <div className="h-screen w-screen bg-slate-50 relative overflow-hidden font-sans select-none">
+    <div className="h-screen w-screen bg-slate-200 flex items-center justify-center overflow-hidden font-sans select-none relative">
       
-      {/* Mobile-first layout: Content takes full screen immediately */}
-      <div className="w-full h-full flex flex-col">
+      {/* PC Background (blurred pattern) */}
+      <div className="absolute inset-0 z-0 bg-slate-300 opacity-50 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-200 via-slate-200 to-slate-300">
+         <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%239C92AC\' fill-opacity=\'0.2\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }}></div>
+      </div>
+
+      {/* Phone Frame Container */}
+      <div className="w-full h-full sm:w-[400px] sm:h-[850px] sm:max-h-[90vh] bg-slate-50 relative sm:rounded-[2.5rem] sm:border-[8px] sm:border-slate-800 sm:shadow-2xl overflow-hidden z-10 flex flex-col">
          
         {view === 'LOGIN' && (
           <LoginView 
@@ -434,6 +481,7 @@ export default function App() {
             onOpenHintShop={openHintShop}
             onOpenPurchaseHistory={() => setShowPurchaseHistoryModal(true)}
             onLogout={handleLogout}
+            priceOffer={priceOffer}
           />
         )}
         
@@ -561,6 +609,7 @@ export default function App() {
             onCancelPayment={handleCancelPayment}
             title={paymentModalConfig.title}
             description={paymentModalConfig.description}
+            priceOffer={priceOffer}
           />
         )}
 

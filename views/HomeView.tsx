@@ -6,6 +6,7 @@ import { AdBanner } from '../components/AdBanner';
 import { GOOGLE_AD_CLIENT_ID, GOOGLE_AD_SLOT_ID } from '../constants/ads';
 import { renderThemeBackground } from '../utils/themeBackground';
 import { UserDropdown } from '../components/ui/UserDropdown';
+import { PriceOffer } from '../services/db';
 
 interface HomeViewProps {
   progress: UserProgress;
@@ -19,6 +20,7 @@ interface HomeViewProps {
   onOpenHintShop: () => void;
   onOpenPurchaseHistory: () => void;
   onLogout: () => void;
+  priceOffer: PriceOffer | null;
 }
 
 export const HomeView: React.FC<HomeViewProps> = ({
@@ -32,8 +34,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onOpenInfoModal,
   onOpenHintShop,
   onOpenPurchaseHistory,
-  onLogout
+  onLogout,
+  priceOffer
 }) => {
+  // Use price offer values if available, otherwise fallback to defaults
+  const marketPrice = priceOffer?.marketPrice || 99;
+  const offerPrice = priceOffer?.offerPrice || 9;
+  const hintCount = priceOffer?.hintCount || 100;
+  const hasOffer = marketPrice !== offerPrice;
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
   return (
     <div className={`flex flex-col h-full ${activeTheme.background} relative overflow-hidden transition-colors duration-500`}>
@@ -92,21 +100,21 @@ export const HomeView: React.FC<HomeViewProps> = ({
           <div className="space-y-3 perspective-1000">
             <DifficultyCard 
               difficulty={Difficulty.EASY} 
-              points={10} 
+              points={5} 
               color={activeTheme.id === 'night' ? "bg-gradient-to-r from-indigo-600 to-blue-500" : "bg-gradient-to-r from-emerald-400 to-teal-500"}
               description="100 Levels • Relaxed" 
               onClick={() => onSelectDifficulty(Difficulty.EASY)}
             />
             <DifficultyCard 
               difficulty={Difficulty.MEDIUM} 
-              points={20} 
+              points={10} 
               color={activeTheme.id === 'night' ? "bg-gradient-to-r from-purple-600 to-indigo-600" : "bg-gradient-to-r from-blue-400 to-indigo-500"}
               description="100 Levels • Timed" 
               onClick={() => onSelectDifficulty(Difficulty.MEDIUM)}
             />
             <DifficultyCard 
               difficulty={Difficulty.HARD} 
-              points={50} 
+              points={15} 
               color={activeTheme.id === 'night' ? "bg-gradient-to-r from-pink-700 to-rose-600" : "bg-gradient-to-r from-rose-500 to-pink-600"}
               description="100 Levels • Expert" 
               onClick={() => onSelectDifficulty(Difficulty.HARD)}
@@ -130,9 +138,16 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
               <div className="z-10 flex flex-col items-end pr-1">
                 <div className="flex items-center gap-1 bg-white/25 px-2 py-0.5 rounded-lg backdrop-blur-md shadow-sm border border-white/20">
-                  <span className="font-black text-sm">₹9</span>
+                  {hasOffer ? (
+                    <>
+                      <span className="text-[9px] line-through opacity-70 font-medium">₹{marketPrice}</span>
+                      <span className="font-black text-sm">₹{offerPrice}</span>
+                    </>
+                  ) : (
+                    <span className="font-black text-sm">₹{offerPrice}</span>
+                  )}
                 </div>
-                <span className="text-[9px] mt-0.5 opacity-90 uppercase font-bold tracking-wider drop-shadow-sm">100 Pack</span>
+                <span className="text-[9px] mt-0.5 opacity-90 uppercase font-bold tracking-wider drop-shadow-sm">{hintCount} Pack</span>
               </div>
             </div>
 
