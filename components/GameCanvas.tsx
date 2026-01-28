@@ -12,6 +12,7 @@ interface GameCanvasProps {
   difficulty: Difficulty;
   showHints: boolean;
   onImageLoaded?: () => void;
+  onWrongClick?: () => void;
 }
 
 // Base map size
@@ -24,7 +25,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   isLoading,
   difficulty,
   showHints,
-  onImageLoaded
+  onImageLoaded,
+  onWrongClick
 }) => {
   // Loading States: 'generating' (AI), 'loading' (Images), 'fading' (Transition), 'complete' (Game On)
   const [loadingState, setLoadingState] = useState<'generating' | 'loading' | 'fading' | 'complete'>('generating');
@@ -38,6 +40,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const prevShowHintsRef = useRef(showHints);
   // Track which specific puppies should be highlighted (1-2 max)
   const [highlightedPuppyIds, setHighlightedPuppyIds] = useState<Set<string>>(new Set());
+  // Track if initial scroll position has been set
+  const initialScrollSetRef = useRef(false);
+  
+  // Track wrong click positions to show cross icons
+  const [wrongClicks, setWrongClicks] = useState<Array<{ id: string; x: number; y: number }>>([]);
   
   // Track the last loaded background to prevent re-triggering loading on game updates (like finding a puppy)
   const prevBgRef = useRef<string | null>(null);
@@ -165,15 +172,31 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     return () => observer.disconnect();
   }, [loadingState]);
 
-  // Center scroll when loading is entering fading state (assets ready)
+  // Random initial scroll position when loading is entering fading state (assets ready)
   useEffect(() => {
-    if ((loadingState === 'fading' || loadingState === 'complete') && scrollContainerRef.current) {
+    if ((loadingState === 'fading' || loadingState === 'complete') && scrollContainerRef.current && !initialScrollSetRef.current) {
       const { scrollWidth, scrollHeight, clientWidth, clientHeight } = scrollContainerRef.current;
+      
+      // Calculate maximum scroll positions
+      const maxScrollLeft = Math.max(0, scrollWidth - clientWidth);
+      const maxScrollTop = Math.max(0, scrollHeight - clientHeight);
+      
+      // Random position anywhere on the map
+      const randomScrollLeft = Math.random() * maxScrollLeft;
+      const randomScrollTop = Math.random() * maxScrollTop;
+      
       scrollContainerRef.current.scrollTo({
-        left: (scrollWidth - clientWidth) / 2,
-        top: (scrollHeight - clientHeight) / 2,
+        left: randomScrollLeft,
+        top: randomScrollTop,
         behavior: 'instant'
       });
+      
+      initialScrollSetRef.current = true;
+    }
+    
+    // Reset the flag when loading starts (new level)
+    if (loadingState === 'generating' || loadingState === 'loading') {
+      initialScrollSetRef.current = false;
     }
   }, [loadingState]);
 
@@ -188,7 +211,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       
       if (hiddenPuppies.length > 0) {
         // Use a margin to ensure the puppy is not just on the edge
-        const margin = 50;
+        const margin = 50; 
         
         // Find puppies visible in current viewport
         const visiblePuppies = hiddenPuppies.filter(p => {
@@ -488,6 +511,59 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
            }}
         >
           <div 
+            onClick={(e) => {
+              // Only handle wrong clicks when game is fully loaded and hints are not showing
+              if (loadingState !== 'complete' || showHints || !onWrongClick) return;
+              
+              // Get click position relative to the scaled background div
+              const rect = e.currentTarget.getBoundingClientRect();
+              const clickX = (e.clientX - rect.left) / zoom;
+              const clickY = (e.clientY - rect.top) / zoom;
+              
+              // Show cross icon at wrong click position
+              const wrongClickId = `wrong-${Date.now()}-${Math.random()}`;
+              setWrongClicks(prev => [...prev, { id: wrongClickId, x: clickX, y: clickY }]);
+              
+              // Auto-remove cross icon after 800ms
+              setTimeout(() => {
+                setWrongClicks(prev => prev.filter(wc => wc.id !== wrongClickId));
+              }, 800);
+              
+              // Convert to percentage coordinates (0-100)
+              const clickXPercent = (clickX / MAP_SIZE) * 100;
+              const clickYPercent = (clickY / MAP_SIZE) * 100;
+              
+              // Check if click is within any unfound puppy's bounds
+              // Note: Clicks on found puppies are handled by the puppy's onClick which stops propagation
+              const clickedOnPuppy = puppies.some(puppy => {
+                if (puppy.isFound) return false; // Don't check found puppies
+                
+                const baseSize = Math.max(30, puppy.scale * 120);
+                const puppyX = (puppy.x / 100) * MAP_SIZE;
+                const puppyY = (puppy.y / 100) * MAP_SIZE;
+                
+                // Calculate bounds (puppy is centered at x%, y%)
+                const halfSize = baseSize / 2;
+                const left = puppyX - halfSize;
+                const right = puppyX + halfSize;
+                const top = puppyY - halfSize;
+                const bottom = puppyY + halfSize;
+                
+                // Check if click is within bounds (with some tolerance for easier clicking)
+                const tolerance = baseSize * 0.3; // 30% tolerance
+                return (
+                  clickX >= left - tolerance &&
+                  clickX <= right + tolerance &&
+                  clickY >= top - tolerance &&
+                  clickY <= bottom + tolerance
+                );
+              });
+              
+              // If not clicked on any puppy, it's a wrong click
+              if (!clickedOnPuppy) {
+                onWrongClick();
+              }
+            }}
             style={{ 
               width: `${MAP_SIZE}px`,
               height: `${MAP_SIZE}px`,
@@ -498,6 +574,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
               backgroundImage: loadError ? `url("${FALLBACK_BG}")` : `url("${backgroundImage}")`,
               backgroundSize: 'cover',
               backgroundPosition: 'center',
+              cursor: loadingState === 'complete' && !showHints ? 'pointer' : 'default',
             }}
           >
             {loadError && (
@@ -509,6 +586,73 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
                  </div>
               </div>
             )}
+            
+            {/* Wrong Click Cross Icons */}
+            {wrongClicks.map((wrongClick) => (
+              <div
+                key={wrongClick.id}
+                className="absolute pointer-events-none z-50"
+                style={{
+                  left: `${wrongClick.x}px`,
+                  top: `${wrongClick.y}px`,
+                  transform: 'translate(-50%, -50%)',
+                  animation: 'wrongClickFade 0.8s ease-out forwards'
+                }}
+              >
+                <div className="relative">
+                  {/* Cross Icon */}
+                  <i className="fas fa-times text-red-500 text-4xl drop-shadow-lg" 
+                     style={{
+                       textShadow: '0 0 10px rgba(239, 68, 68, 0.8), 0 0 20px rgba(239, 68, 68, 0.5)',
+                       filter: 'drop-shadow(0 0 8px rgba(239, 68, 68, 0.6))'
+                     }}
+                  ></i>
+                  {/* Outer ring for better visibility */}
+                  <div 
+                    className="absolute inset-0 -translate-x-1/2 -translate-y-1/2 w-16 h-16 rounded-full bg-red-500/30"
+                    style={{
+                      animation: 'wrongClickRing 0.8s ease-out forwards'
+                    }}
+                  ></div>
+                </div>
+              </div>
+            ))}
+            
+            {/* CSS Animation for wrong click cross */}
+            <style>{`
+              @keyframes wrongClickFade {
+                0% {
+                  opacity: 0;
+                  transform: translate(-50%, -50%) scale(0.5);
+                }
+                20% {
+                  opacity: 1;
+                  transform: translate(-50%, -50%) scale(1.2);
+                }
+                80% {
+                  opacity: 1;
+                  transform: translate(-50%, -50%) scale(1);
+                }
+                100% {
+                  opacity: 0;
+                  transform: translate(-50%, -50%) scale(0.8);
+                }
+              }
+              @keyframes wrongClickRing {
+                0% {
+                  opacity: 0.8;
+                  transform: translate(-50%, -50%) scale(0.5);
+                }
+                50% {
+                  opacity: 0.4;
+                  transform: translate(-50%, -50%) scale(1.5);
+                }
+                100% {
+                  opacity: 0;
+                  transform: translate(-50%, -50%) scale(2);
+                }
+              }
+            `}</style>
             
             {/* Puppy Layer */}
             {puppies.map((puppy) => {

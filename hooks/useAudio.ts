@@ -3,10 +3,11 @@ import { SOUNDS } from '../constants/sounds';
 
 interface UseAudioProps {
   view: string;
-  isMuted: boolean;
+  backgroundMusicEnabled: boolean;
+  soundEffectsEnabled: boolean;
 }
 
-export const useAudio = ({ view, isMuted }: UseAudioProps) => {
+export const useAudio = ({ view, backgroundMusicEnabled, soundEffectsEnabled }: UseAudioProps) => {
   const ambientAudioRef = useRef<HTMLAudioElement | null>(null);
   const wasPlayingBeforeHiddenRef = useRef(false);
 
@@ -18,8 +19,8 @@ export const useAudio = ({ view, isMuted }: UseAudioProps) => {
       ambientAudioRef.current.volume = 0.2; // Softer background
     }
     
-    // Play logic: Only play if logged in (interacted) and not muted
-    const shouldPlay = view !== 'LOGIN' && !isMuted;
+    // Play logic: Only play if logged in (interacted) and background music is enabled
+    const shouldPlay = view !== 'LOGIN' && backgroundMusicEnabled;
 
     if (shouldPlay) {
       const playPromise = ambientAudioRef.current.play();
@@ -37,7 +38,7 @@ export const useAudio = ({ view, isMuted }: UseAudioProps) => {
         ambientAudioRef.current.pause();
       }
     };
-  }, [view, isMuted]);
+  }, [view, backgroundMusicEnabled]);
 
   // Handle visibility change and window focus: pause when app/tab loses focus, resume when focused
   useEffect(() => {
@@ -50,7 +51,7 @@ export const useAudio = ({ view, isMuted }: UseAudioProps) => {
         ambientAudioRef.current.pause();
       } else if (document.visibilityState === 'visible') {
         // App/tab is visible again - resume if conditions are met (music should be playing)
-        const shouldPlay = view !== 'LOGIN' && !isMuted;
+        const shouldPlay = view !== 'LOGIN' && backgroundMusicEnabled;
         if (shouldPlay) {
           const playPromise = ambientAudioRef.current.play();
           if (playPromise !== undefined) {
@@ -72,7 +73,7 @@ export const useAudio = ({ view, isMuted }: UseAudioProps) => {
     const handleWindowFocus = () => {
       if (!ambientAudioRef.current) return;
       // Window regained focus - resume if conditions are met (music should be playing)
-      const shouldPlay = view !== 'LOGIN' && !isMuted;
+      const shouldPlay = view !== 'LOGIN' && backgroundMusicEnabled;
       if (shouldPlay) {
         const playPromise = ambientAudioRef.current.play();
         if (playPromise !== undefined) {
@@ -92,10 +93,10 @@ export const useAudio = ({ view, isMuted }: UseAudioProps) => {
       window.removeEventListener('blur', handleWindowBlur);
       window.removeEventListener('focus', handleWindowFocus);
     };
-  }, [view, isMuted]);
+  }, [view, backgroundMusicEnabled]);
 
-  const playSfx = (type: 'found' | 'clear' | 'hint' | 'pay' | 'fail', isMuted: boolean) => {
-    if (isMuted) return;
+  const playSfx = (type: 'found' | 'clear' | 'hint' | 'pay' | 'fail', soundEffectsEnabled: boolean) => {
+    if (!soundEffectsEnabled) return;
     try {
       const sfx = new Audio(SOUNDS[type]);
       sfx.volume = type === 'clear' ? 0.5 : 0.4;

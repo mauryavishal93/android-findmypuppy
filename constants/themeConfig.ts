@@ -1,5 +1,6 @@
 import { ThemeType, ThemeConfig } from '../types';
 
+
 export const THEME_CONFIGS: Record<ThemeType, ThemeConfig> = {
   sunny: {
     id: 'sunny',

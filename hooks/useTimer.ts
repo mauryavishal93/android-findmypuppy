@@ -8,10 +8,12 @@ interface UseTimerProps {
 
 export const useTimer = ({ timeLimit, isRunning, onTimeUp }: UseTimerProps) => {
   const [timeLeft, setTimeLeft] = useState<number | null>(timeLimit);
+  const [resetKey, setResetKey] = useState(0);
 
+  // Reset timer when timeLimit changes OR when explicitly reset
   useEffect(() => {
     setTimeLeft(timeLimit);
-  }, [timeLimit]);
+  }, [timeLimit, resetKey]);
 
   useEffect(() => {
     let interval: any;
@@ -33,10 +35,17 @@ export const useTimer = ({ timeLimit, isRunning, onTimeUp }: UseTimerProps) => {
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
+  // Function to force reset timer to current timeLimit
+  const resetTimer = () => {
+    setTimeLeft(timeLimit);
+    setResetKey(prev => prev + 1);
+  };
+
   return {
     timeLeft,
     setTimeLeft,
-    formatTime
+    formatTime,
+    resetTimer
   };
 };
 

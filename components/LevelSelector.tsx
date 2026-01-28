@@ -113,7 +113,7 @@ export const LevelSelector: React.FC<LevelSelectorProps> = ({
          {renderThemeBackground(currentTheme)}
       </div>
 
-      <div className={`p-4 border-b flex items-center justify-between backdrop-blur-md shadow-sm z-10 sticky top-0 ${headerBgClass}`}>
+      <div className={`mobile-header border-b flex justify-between backdrop-blur-md shadow-sm z-10 sticky top-0 ${headerBgClass} transition-all duration-500`}>
         <button onClick={onBack} className={`w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/10 transition shadow-sm border ${btnBgClass}`}>
           <i className="fas fa-arrow-left"></i>
         </button>

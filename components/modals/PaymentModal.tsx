@@ -46,7 +46,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
            <p className="text-sm text-slate-500 mb-6">
              {paymentStatus === 'verifying' 
                ? 'Confirming payment status.' 
-               : 'Redirecting to UPI app...'}
+               : 'Opening secure checkout...'}
            </p>
            {paymentStatus === 'processing' && (
              <button onClick={onCancelPayment} className="text-slate-400 font-bold text-xs uppercase tracking-wider hover:text-slate-600">
@@ -111,9 +111,9 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
         >
           {/* Tag - only show if there's an offer */}
           {hasOffer && discountPercent > 0 && (
-            <div className="absolute top-0 right-0 bg-red-500 text-white text-[9px] font-black px-2 py-0.5 rounded-bl-lg">
+          <div className="absolute top-0 right-0 bg-red-500 text-white text-[9px] font-black px-2 py-0.5 rounded-bl-lg">
               {discountPercent}% OFF
-            </div>
+          </div>
           )}
 
           <div className="flex flex-col items-start leading-none">

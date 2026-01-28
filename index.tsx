@@ -1,6 +1,22 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { registerSW } from 'virtual:pwa-register'
+
+// Register the PWA service worker
+if (typeof window !== 'undefined') {
+  registerSW({
+    onNeedRefresh() {
+      if (confirm('New content available. Reload?')) {
+        window.location.reload()
+      }
+    },
+    onOfflineReady() {
+      console.log('App ready to work offline')
+    },
+  })
+}
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -10,6 +26,8 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </React.StrictMode>
 );

@@ -4,9 +4,15 @@ import { Difficulty, UserProgress, ThemeType } from './types';
 import { THEME_CONFIGS } from './constants/themeConfig';
 import { LevelSelector } from './components/LevelSelector';
 import { InfoModal } from './components/modals/InfoModal';
+import { ExplorerGuide } from './components/ExplorerGuide';
+import { LeaderboardModal } from './components/modals/LeaderboardModal';
 import { ThemeModal } from './components/modals/ThemeModal';
 import { PaymentModal } from './components/modals/PaymentModal';
+import { PaymentResultModal } from './components/modals/PaymentResultModal';
 import { PurchaseHistoryModal } from './components/modals/PurchaseHistoryModal';
+import { ReferFriendModal } from './components/modals/ReferFriendModal';
+import { ForgotPasswordModal } from './components/modals/ForgotPasswordModal';
+import { ResetPasswordModal } from './components/modals/ResetPasswordModal';
 import { Button } from './components/ui/Button';
 import { LoginView } from './views/LoginView';
 import { HomeView } from './views/HomeView';
@@ -19,16 +25,35 @@ import { useAudio } from './hooks/useAudio';
 import { db, PriceOffer } from './services/db';
 
 export default function App() {
-  const [view, setView] = useState<'LOGIN' | 'HOME' | 'LEVEL_SELECT' | 'GAME' | 'WIN' | 'GAME_OVER'>('LOGIN');
+  const [view, setView] = useState<'LOGIN' | 'HOME' | 'LEVEL_SELECT' | 'GAME' | 'WIN' | 'GAME_OVER' | 'GAME_LOST'>('LOGIN');
   const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty>(Difficulty.EASY);
   const [currentLevelId, setCurrentLevelId] = useState<number>(1);
   const [loginName, setLoginName] = useState('');
-  const [isMuted, setIsMuted] = useState(false);
+  const loginNameRef = useRef('');
+  // Separate audio controls
+  const [backgroundMusicEnabled, setBackgroundMusicEnabled] = useState(() => {
+    const saved = localStorage.getItem('findMyPuppy_backgroundMusic');
+    return saved ? JSON.parse(saved) : true;
+  });
+  const [soundEffectsEnabled, setSoundEffectsEnabled] = useState(() => {
+    const saved = localStorage.getItem('findMyPuppy_soundEffects');
+    return saved ? JSON.parse(saved) : true;
+  });
+  
+  // Legacy isMuted for backward compatibility (both disabled = muted)
+  const isMuted = !backgroundMusicEnabled && !soundEffectsEnabled;
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [timeLimit, setTimeLimit] = useState<number | null>(null);
+  const [wrongAttempts, setWrongAttempts] = useState<number>(0);
   
   // Info Modal State
   const [showInfoModal, setShowInfoModal] = useState(false);
+  
+  // Explorer Guide State
+  const [showExplorerGuide, setShowExplorerGuide] = useState(false);
+
+  // Leaderboard Modal State
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
   
   // Theme Modal State
   const [showThemeModal, setShowThemeModal] = useState(false);
@@ -36,11 +61,24 @@ export default function App() {
   // Purchase History Modal State
   const [showPurchaseHistoryModal, setShowPurchaseHistoryModal] = useState(false);
 
+  // Refer a Friend Modal State
+  const [showReferModal, setShowReferModal] = useState(false);
+
+  // Forgot Password Modal State
+  const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
+  
+  // Reset Password Modal State
+  const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
+  const [resetPasswordToken, setResetPasswordToken] = useState<string | null>(null);
+
   // Track last processed payment ID to avoid duplicate history entries
-  const lastProcessedPaymentIdRef = useRef<number | null>(null);
+  const lastProcessedPaymentIdRef = useRef<string | null>(null);
 
   // Price Offer State
   const [priceOffer, setPriceOffer] = useState<PriceOffer | null>(null);
+
+  // Quit Confirmation State
+  const [showQuitConfirm, setShowQuitConfirm] = useState(false);
 
   const [progress, setProgress] = useState<UserProgress>(() => {
     const saved = localStorage.getItem('findMyPuppy_progress');
@@ -50,26 +88,38 @@ export default function App() {
       totalScore: 0,
       unlockedDifficulties: [Difficulty.EASY],
       premiumHints: 0,
-      selectedTheme: 'sunny' as ThemeType
+      selectedTheme: 'night' as ThemeType
     };
     return saved ? { ...defaultProgress, ...JSON.parse(saved) } : defaultProgress;
   });
 
-  // Ensure we always have a valid theme, fallback to 'sunny' if invalid
-  const selectedTheme = progress.selectedTheme || 'sunny';
-  const activeTheme = THEME_CONFIGS[selectedTheme as ThemeType] || THEME_CONFIGS['sunny'];
+  // Ensure we always have a valid theme, fallback to 'night' if invalid
+  const selectedTheme = progress.selectedTheme || 'night';
+  const activeTheme = THEME_CONFIGS[selectedTheme as ThemeType] || THEME_CONFIGS['night'];
 
   // Custom Hooks
-  const { ambientAudioRef, playSfx } = useAudio({ view, isMuted });
+  const { ambientAudioRef, playSfx } = useAudio({ view, backgroundMusicEnabled, soundEffectsEnabled });
   const { gameState, initLevel, updatePuppy } = useGameState();
   
   const handleGameOver = useCallback(() => {
     setIsTimerRunning(false);
-    playSfx('fail', isMuted);
+    playSfx('fail', soundEffectsEnabled);
     setView('GAME_OVER');
-  }, [playSfx, isMuted]);
+  }, [playSfx, soundEffectsEnabled]);
 
-  const { timeLeft, setTimeLeft, formatTime } = useTimer({
+  const handleWrongClick = useCallback(() => {
+    playSfx('fail', soundEffectsEnabled);
+    setWrongAttempts(prev => {
+      const newAttempts = prev + 1;
+      if (newAttempts >= 3) {
+        setIsTimerRunning(false);
+        setView('GAME_LOST');
+      }
+      return newAttempts;
+    });
+  }, [playSfx, soundEffectsEnabled]);
+
+  const { timeLeft, setTimeLeft, formatTime, resetTimer } = useTimer({
     timeLimit,
     isRunning: isTimerRunning,
     onTimeUp: handleGameOver
@@ -134,7 +184,9 @@ export default function App() {
           return {
             ...prev,
             playerName: user.username, // Ensure casing matches DB
+            email: user.email,
             totalScore: user.points || 0,
+            points: user.points || 0,
             premiumHints: user.hints || 0,
             clearedLevels: newClearedLevels
             // Preserve theme as it might be local pref or we could sync it if DB supported it
@@ -146,7 +198,7 @@ export default function App() {
     }
   }, []);
 
-  const handlePaymentSuccess = useCallback((hints: number, paymentId: number, amount: number) => {
+  const handlePaymentSuccess = useCallback((hints: number, paymentId: string, amount: number) => {
     // Deduplicate by paymentId: if we've already processed this, ignore
     if (lastProcessedPaymentIdRef.current === paymentId) {
       return;
@@ -183,14 +235,18 @@ export default function App() {
     paymentStatus,
     showPaymentModal,
     paymentModalConfig,
+    paymentResult,
     handlePayment,
     handleCancelPayment,
     openPaymentModal,
-    closePaymentModal
+    closePaymentModal,
+    closePaymentResult
   } = usePayment({
     onPaymentSuccess: handlePaymentSuccess,
-    playSfx: (type) => playSfx(type, isMuted),
-    priceOffer: priceOffer
+    playSfx: (type) => playSfx(type, soundEffectsEnabled),
+    priceOffer: priceOffer,
+    playerName: progress.playerName || 'Player',
+    playerEmail: progress.email || '' 
   });
 
   const handleOutOfHints = useCallback(() => {
@@ -205,11 +261,15 @@ export default function App() {
     handleUseHint,
     resetHints,
     freeHintsRemaining,
+    totalHintsRemaining,
+    currentHintType,
+    currentHintCount,
+    hasHints,
     hasPremiumHints
   } = useHints({
     progress,
     setProgress,
-    playSfx: (type) => playSfx(type, isMuted),
+    playSfx: (type) => playSfx(type, soundEffectsEnabled),
     onOutOfHints: handleOutOfHints
   });
 
@@ -224,6 +284,18 @@ export default function App() {
   useEffect(() => {
     fetchPriceOffer();
   }, [view, fetchPriceOffer]);
+
+  // Check for reset password token in URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+    if (token && view === 'LOGIN') {
+      setResetPasswordToken(token);
+      setShowResetPasswordModal(true);
+      // Clean URL
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, [view]);
 
   // Restore session: if a playerName is present, stay logged in and sync data
   useEffect(() => {
@@ -245,8 +317,10 @@ export default function App() {
   }, [progress]);
 
   const handleLogin = async () => {
-    if (!loginName.trim()) return;
-    const username = loginName.trim();
+    // Use ref value first (updated immediately), fallback to state (for regular login)
+    const usernameToUse = loginNameRef.current.trim() || loginName.trim();
+    if (!usernameToUse) return;
+    const username = usernameToUse;
     
     // Set view immediately for better UX
     setView('HOME');
@@ -275,12 +349,13 @@ export default function App() {
       totalScore: 0,
       unlockedDifficulties: [Difficulty.EASY],
       premiumHints: 0,
-      selectedTheme: 'sunny' as ThemeType
+      selectedTheme: 'night' as ThemeType
     });
     localStorage.removeItem('findMyPuppy_progress');
     setLoginName('');
     setView('LOGIN');
-    setIsMuted(false);
+        setBackgroundMusicEnabled(true);
+        setSoundEffectsEnabled(true);
     if (ambientAudioRef.current) {
       ambientAudioRef.current.pause();
       ambientAudioRef.current.currentTime = 0;
@@ -293,14 +368,28 @@ export default function App() {
   };
 
   const handleInitLevel = useCallback(async (level: number, diff: Difficulty) => {
-    resetHints();
-    const result = await initLevel(level, diff);
-    setTimeLimit(result.timeLimit);
-    if (result.timeLimit !== null) {
-      setTimeLeft(result.timeLimit);
-    }
+    // Stop timer first to prevent it from continuing
     setIsTimerRunning(false);
-  }, [initLevel, resetHints, setTimeLeft]);
+    resetHints();
+    setWrongAttempts(0); // Reset wrong attempts for new level
+    
+    const result = await initLevel(level, diff);
+    
+    // Always reset timer to the full time limit for a fresh start
+    // Set timeLimit first, then reset timer to ensure fresh start
+    if (result.timeLimit !== null) {
+      setTimeLimit(result.timeLimit);
+      // Reset timer to full time limit - this ensures fresh start even for same level
+      setTimeLeft(result.timeLimit);
+      resetTimer(); // Force reset using resetKey
+    } else {
+      setTimeLimit(null);
+      setTimeLeft(null);
+    }
+    
+    // Ensure timer is stopped until image loads
+    setIsTimerRunning(false);
+  }, [initLevel, resetHints, setTimeLeft, resetTimer]);
 
   const handleLevelSelect = (levelId: number) => {
     setCurrentLevelId(levelId);
@@ -309,7 +398,7 @@ export default function App() {
   };
 
   const handleLevelClear = useCallback(async () => {
-    playSfx('clear', isMuted);
+    playSfx('clear', soundEffectsEnabled);
     const levelKey = `${selectedDifficulty}_${currentLevelId}`;
     const isFirstClear = !progress.clearedLevels[levelKey];
     let pointsAwarded = 0;
@@ -362,10 +451,10 @@ export default function App() {
     });
 
     setView('WIN');
-  }, [playSfx, isMuted, selectedDifficulty, currentLevelId, progress.clearedLevels, progress.playerName]);
+  }, [playSfx, soundEffectsEnabled, selectedDifficulty, currentLevelId, progress.clearedLevels, progress.playerName]);
 
   const handlePuppyFound = useCallback((id: string) => {
-    playSfx('found', isMuted);
+    playSfx('found', soundEffectsEnabled);
 
     // Calculate updated puppies before state update
     const updatedPuppies = gameState.puppies.map(p => 
@@ -381,11 +470,24 @@ export default function App() {
       setIsTimerRunning(false);
       setTimeout(() => handleLevelClear(), 800);
     }
-  }, [playSfx, isMuted, updatePuppy, gameState.puppies, handleLevelClear]);
+  }, [playSfx, soundEffectsEnabled, updatePuppy, gameState.puppies, handleLevelClear]);
   
   const handleRetry = () => {
     handleInitLevel(currentLevelId, selectedDifficulty);
     setView('GAME');
+  };
+
+  const handleQuitGame = () => {
+    setShowQuitConfirm(false);
+    setIsTimerRunning(false);
+    // Reset timer for next time
+    if (timeLimit !== null) {
+      setTimeLeft(timeLimit);
+      resetTimer();
+    } else {
+      setTimeLeft(null);
+    }
+    setView('LEVEL_SELECT');
   };
 
   const openHintShop = () => {
@@ -397,7 +499,7 @@ export default function App() {
 
   const handlePayWithPoints = () => {
     if (progress.totalScore >= 10) {
-      playSfx('pay', isMuted);
+      playSfx('pay', soundEffectsEnabled);
       setProgress(prev => {
         const newTotalScore = prev.totalScore - 10;
         const newHints = (prev.premiumHints || 0) + 2;
@@ -444,24 +546,124 @@ export default function App() {
      setIsTimerRunning(true);
   }, []);
 
-  const toggleMute = () => setIsMuted(prev => !prev);
+  // Toggle functions for audio controls
+  const toggleBackgroundMusic = () => {
+    const newValue = !backgroundMusicEnabled;
+    setBackgroundMusicEnabled(newValue);
+    localStorage.setItem('findMyPuppy_backgroundMusic', JSON.stringify(newValue));
+  };
+  
+  const toggleSoundEffects = () => {
+    const newValue = !soundEffectsEnabled;
+    setSoundEffectsEnabled(newValue);
+    localStorage.setItem('findMyPuppy_soundEffects', JSON.stringify(newValue));
+  };
+  
+  // Legacy toggle for backward compatibility
+  const toggleMute = () => {
+    const newValue = !isMuted;
+    setBackgroundMusicEnabled(newValue);
+    setSoundEffectsEnabled(newValue);
+    localStorage.setItem('findMyPuppy_backgroundMusic', JSON.stringify(newValue));
+    localStorage.setItem('findMyPuppy_soundEffects', JSON.stringify(newValue));
+  };
+
+  const handleBack = useCallback(() => {
+    // 1. If any modal is open, close it and ensure we are on HOME (Select Difficulty)
+    if (showInfoModal || showThemeModal || showPurchaseHistoryModal || showPaymentModal || showLeaderboard) {
+      setShowInfoModal(false);
+      setShowLeaderboard(false);
+      setShowThemeModal(false);
+      setShowPurchaseHistoryModal(false);
+      closePaymentModal();
+      setView('HOME');
+      return;
+    }
+
+    // 2. If quit confirmation is open, just close it
+    if (showQuitConfirm) {
+      setShowQuitConfirm(false);
+      return;
+    }
+
+    // 3. Handle View-specific back logic
+    switch (view) {
+      case 'GAME':
+        // Show confirmation pop-up, timer keeps running
+        setShowQuitConfirm(true);
+        break;
+      case 'LEVEL_SELECT':
+      case 'WIN':
+      case 'GAME_OVER':
+        setView('HOME');
+        break;
+      case 'HOME':
+      case 'LOGIN':
+        // On base screens, we allow the natural back behavior to close/exit the app.
+        // This is handled by NOT pushing to the history stack in these views.
+        break;
+      default:
+        break;
+    }
+  }, [
+    view, 
+    showInfoModal, 
+    showThemeModal, 
+    showPurchaseHistoryModal, 
+    showPaymentModal, 
+    showQuitConfirm, 
+    closePaymentModal
+  ]);
+
+  // Sync history state to intercept hardware back button on Android/Mobile
+  useEffect(() => {
+    // Base screens: HOME (Select Difficulty) or LOGIN
+    const isBaseScreen = (view === 'LOGIN' || view === 'HOME') && 
+                         !showInfoModal && !showThemeModal && 
+                         !showPurchaseHistoryModal && !showPaymentModal && 
+                         !showQuitConfirm && !showLeaderboard;
+
+    if (!isBaseScreen) {
+      // If we are not on a base screen, ensure there is a history entry to "pop"
+      // This prevents the hardware back button from closing the app immediately.
+      if (window.history.state?.page !== 'sub-screen') {
+        window.history.pushState({ page: 'sub-screen' }, '');
+      }
+    }
+
+    const onPopState = () => {
+      // If the back button was pressed and we are in a sub-screen/modal,
+      // intercept it and run our custom back logic.
+      if (!isBaseScreen) {
+        handleBack();
+      }
+    };
+
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [view, showInfoModal, showThemeModal, showPurchaseHistoryModal, showPaymentModal, showQuitConfirm, showLeaderboard, handleBack]);
 
   return (
-    <div className="h-screen w-screen bg-slate-200 flex items-center justify-center overflow-hidden font-sans select-none relative">
+    <div className="mobile-app-container">
       
-      {/* PC Background (blurred pattern) */}
-      <div className="absolute inset-0 z-0 bg-slate-300 opacity-50 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-200 via-slate-200 to-slate-300">
-         <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%239C92AC\' fill-opacity=\'0.2\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }}></div>
+      {/* PC Background Decorations (Web Only) */}
+      <div className="absolute inset-0 z-0 bg-slate-900 overflow-hidden hidden sm:block">
+        <div className="absolute inset-0 opacity-20 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-500 via-slate-900 to-black"></div>
+        <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%239C92AC\' fill-opacity=\'0.2\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }}></div>
       </div>
 
-      {/* Phone Frame Container */}
-      <div className="w-full h-full sm:w-[400px] sm:h-[850px] sm:max-h-[90vh] bg-slate-50 relative sm:rounded-[2.5rem] sm:border-[8px] sm:border-slate-800 sm:shadow-2xl overflow-hidden z-10 flex flex-col">
+      {/* Physical Phone Frame Container */}
+      <div className={`mobile-phone-frame shadow-2xl ${activeTheme.background} transition-colors duration-500`}>
          
         {view === 'LOGIN' && (
           <LoginView 
             loginName={loginName}
-            setLoginName={setLoginName}
+            setLoginName={(name) => {
+              loginNameRef.current = name;
+              setLoginName(name);
+            }}
             onLogin={handleLogin}
+            onForgotPassword={() => setShowForgotPasswordModal(true)}
           />
         )}
 
@@ -469,19 +671,41 @@ export default function App() {
           <HomeView
             progress={progress}
             activeTheme={activeTheme}
-            selectedDifficulty={selectedDifficulty}
             onSelectDifficulty={(diff) => {
               setSelectedDifficulty(diff);
               setView('LEVEL_SELECT');
             }}
             onToggleMute={toggleMute}
             isMuted={isMuted}
+            backgroundMusicEnabled={backgroundMusicEnabled}
+            soundEffectsEnabled={soundEffectsEnabled}
+            onToggleBackgroundMusic={toggleBackgroundMusic}
+            onToggleSoundEffects={toggleSoundEffects}
             onOpenThemeModal={() => setShowThemeModal(true)}
             onOpenInfoModal={() => setShowInfoModal(true)}
             onOpenHintShop={openHintShop}
             onOpenPurchaseHistory={() => setShowPurchaseHistoryModal(true)}
+            onOpenReferModal={() => setShowReferModal(true)}
             onLogout={handleLogout}
             priceOffer={priceOffer}
+            onHintsUpdated={(newHints) => {
+              setProgress(prev => ({ ...prev, premiumHints: newHints }));
+              // Also sync to database
+              if (progress.playerName) {
+                db.updateHints(progress.playerName, newHints).catch(err => {
+                  console.error('Failed to update hints in database:', err);
+                });
+              }
+            }}
+            onPointsUpdated={(newPoints) => {
+              setProgress(prev => ({ ...prev, totalScore: newPoints, points: newPoints }));
+              // Sync points to database
+              if (progress.playerName) {
+                db.updatePoints(progress.playerName, newPoints).catch(err => {
+                  console.error('Failed to update points in database:', err);
+                });
+              }
+            }}
           />
         )}
         
@@ -490,15 +714,15 @@ export default function App() {
             difficulty={selectedDifficulty}
             clearedLevels={progress.clearedLevels}
             onSelectLevel={handleLevelSelect}
-            onBack={() => setView('HOME')}
+            onBack={handleBack}
             isMuted={isMuted}
             onToggleMute={toggleMute}
-            currentTheme={progress.selectedTheme || 'sunny'}
+            currentTheme={progress.selectedTheme || 'night'}
           />
         )}
 
         {/* Render Game Underneath Modals for better UX */}
-        {(view === 'GAME' || view === 'WIN' || view === 'GAME_OVER') && (
+        {(view === 'GAME' || view === 'WIN' || view === 'GAME_OVER' || view === 'GAME_LOST') && (
           <GameView
             gameState={gameState}
             selectedDifficulty={selectedDifficulty}
@@ -507,14 +731,19 @@ export default function App() {
             formatTime={formatTime}
             showHints={showHints}
             freeHintsRemaining={freeHintsRemaining}
+            totalHintsRemaining={totalHintsRemaining}
+            currentHintType={currentHintType}
+            currentHintCount={currentHintCount}
+            hasHints={hasHints}
             hasPremiumHints={hasPremiumHints}
-            premiumHints={progress.premiumHints || 0}
             isMuted={isMuted}
             onPuppyFound={handlePuppyFound}
             onImageLoaded={handleImageLoaded}
             onUseHint={handleUseHint}
             onToggleMute={toggleMute}
-            onBack={() => setView('LEVEL_SELECT')}
+            onBack={handleBack}
+            onWrongClick={handleWrongClick}
+            wrongAttempts={wrongAttempts}
           />
         )}
 
@@ -587,16 +816,94 @@ export default function App() {
           </div>
         )}
 
+        {view === 'GAME_LOST' && (
+          <div className="absolute inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in">
+            <div className="bg-white rounded-[2rem] p-8 w-full max-w-sm text-center shadow-2xl relative border-4 border-red-200 overflow-hidden">
+              {/* Animated Background Pattern */}
+              <div className="absolute inset-0 opacity-5">
+                {[...Array(30)].map((_, i) => (
+                  <div key={i} className="absolute animate-pulse" style={{
+                    left: `${Math.random() * 100}%`,
+                    top: `${Math.random() * 100}%`,
+                    fontSize: `${10 + Math.random() * 20}px`,
+                    transform: `rotate(${Math.random() * 360}deg)`,
+                    animationDelay: `${Math.random() * 2}s`,
+                    animationDuration: `${1 + Math.random() * 2}s`
+                  }}>
+                    <i className="fas fa-times text-red-500"></i>
+                  </div>
+                ))}
+              </div>
+
+              <div className="relative z-10 flex flex-col items-center">
+                {/* Crying Icon - Top Center */}
+                <div className="w-28 h-28 bg-gradient-to-br from-red-400 to-rose-600 rounded-full flex items-center justify-center shadow-2xl border-4 border-white animate-bounce-short mb-6">
+                  <i className="fas fa-sad-tear text-6xl text-white drop-shadow-lg"></i>
+                </div>
+                
+                {/* Text Content Below Icon */}
+                <h2 className="text-4xl font-black text-slate-800 mb-3 bg-gradient-to-r from-red-600 to-rose-600 bg-clip-text text-transparent">
+                  Oops! You Lost!
+                </h2>
+                
+                <div className="mb-6 space-y-2 w-full">
+                  <p className="text-slate-600 font-bold text-lg">
+                    🐾 Too Many Wrong Guesses! 🐾
+                  </p>
+                  <p className="text-slate-500 text-sm font-medium">
+                    Those sneaky puppies are still hiding! You tapped 3 wrong spots.
+                  </p>
+                  <p className="text-slate-400 text-xs italic mt-3">
+                    "The best detectives take their time and look carefully!"
+                  </p>
+                </div>
+
+                <div className="flex flex-col gap-3 w-full">
+                  <Button onClick={handleRetry} className="w-full bg-gradient-to-r from-blue-500 to-indigo-600 text-white text-lg shadow-lg shadow-blue-200 hover:shadow-xl transition-all">
+                    <i className="fas fa-redo mr-2"></i> Try Again
+                  </Button>
+                  <button onClick={() => setView('LEVEL_SELECT')} className="text-slate-400 font-bold hover:text-slate-600 transition-colors py-2">
+                    <i className="fas fa-map mr-2"></i> Back to Map
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {showThemeModal && (
           <ThemeModal 
             onClose={() => setShowThemeModal(false)}
             onSelect={handleThemeChange}
-            currentTheme={progress.selectedTheme || 'sunny'}
+            currentTheme={progress.selectedTheme || 'night'}
           />
         )}
 
         {showInfoModal && (
-          <InfoModal onClose={() => setShowInfoModal(false)} />
+          <InfoModal 
+            onClose={() => setShowInfoModal(false)}
+            onOpenExplorerGuide={() => setShowExplorerGuide(true)}
+            onOpenLeaderboard={() => {
+              setShowInfoModal(false);
+              setShowLeaderboard(true);
+            }}
+          />
+        )}
+
+        {showLeaderboard && (
+          <LeaderboardModal
+            isOpen={showLeaderboard}
+            onClose={() => setShowLeaderboard(false)}
+            activeTheme={THEME_CONFIGS[progress.selectedTheme || 'night']}
+            currentUsername={progress.playerName}
+          />
+        )}
+
+        {showExplorerGuide && (
+          <ExplorerGuide
+            activeTheme={activeTheme}
+            onClose={() => setShowExplorerGuide(false)}
+          />
         )}
 
         {showPaymentModal && (
@@ -613,12 +920,84 @@ export default function App() {
           />
         )}
 
+        {paymentResult.type && (
+          <PaymentResultModal
+            result={paymentResult.type}
+            message={paymentResult.message}
+            errorCode={paymentResult.errorCode}
+            onClose={closePaymentResult}
+          />
+        )}
+
         {showPurchaseHistoryModal && (
           <PurchaseHistoryModal
             onClose={() => setShowPurchaseHistoryModal(false)}
             username={progress.playerName}
             activeTheme={activeTheme}
           />
+        )}
+
+        {showReferModal && (
+          <ReferFriendModal
+            isOpen={showReferModal}
+            onClose={() => setShowReferModal(false)}
+            activeTheme={activeTheme}
+            playerName={progress.playerName}
+          />
+        )}
+
+        {showForgotPasswordModal && (
+          <ForgotPasswordModal
+            isOpen={showForgotPasswordModal}
+            onClose={() => setShowForgotPasswordModal(false)}
+            activeTheme={activeTheme}
+          />
+        )}
+
+        {showResetPasswordModal && resetPasswordToken && (
+          <ResetPasswordModal
+            isOpen={showResetPasswordModal}
+            onClose={() => {
+              setShowResetPasswordModal(false);
+              setResetPasswordToken(null);
+            }}
+            activeTheme={activeTheme}
+            token={resetPasswordToken}
+            onSuccess={() => {
+              setShowResetPasswordModal(false);
+              setResetPasswordToken(null);
+              setView('LOGIN');
+            }}
+          />
+        )}
+
+        {showQuitConfirm && (
+          <div className="absolute inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+            <div className={`bg-white rounded-[2rem] p-8 w-full max-w-sm text-center shadow-2xl relative border-4 ${activeTheme.id === 'night' ? 'border-indigo-500/30' : 'border-white'}`}>
+              <div className="mb-6">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <i className="fas fa-sign-out-alt text-2xl text-red-500"></i>
+                </div>
+                <h2 className="text-2xl font-black text-slate-800">Quit Game?</h2>
+                <p className="text-slate-500 font-medium mt-2">Are you sure you want to quit? Your current level progress will be lost.</p>
+              </div>
+              
+              <div className="flex flex-col gap-3">
+                <Button 
+                  onClick={handleQuitGame}
+                  className="w-full bg-gradient-to-r from-red-500 to-rose-600 text-white shadow-lg shadow-red-200"
+                >
+                  Quit Game
+                </Button>
+                <button 
+                  onClick={() => setShowQuitConfirm(false)}
+                  className="py-3 px-6 text-slate-500 font-bold hover:text-slate-700 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>
