@@ -44,7 +44,7 @@ export const DailyPuzzleGame: React.FC<DailyPuzzleGameProps> = ({
         setPieces([...fixedPuzzle.pieces]);
       }
     }
-  }, []);
+  }, [username]);
 
   // Check if puzzle is complete - must have exactly 9 pieces all placed
   useEffect(() => {

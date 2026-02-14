@@ -12,14 +12,17 @@ import crypto from 'crypto';
 import fs from 'fs';
 import { OAuth2Client } from 'google-auth-library';
 import nodemailer from 'nodemailer';
+import adminRouter from './admin/routes/index.js';
+import { seedFirstAdmin } from './admin/seed.js';
+import { GameConfig, MaintenanceMode } from './admin/schemas.js';
 
-// Load environment variables from .env file (look in parent directory since server.js is in server folder)
+// Load environment variables (Render injects process.env; local can use .env files)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 dotenv.config({ path: join(__dirname, '..', '.env') });
-
-// Also try loading from current directory as fallback
-dotenv.config();
+dotenv.config({ path: join(__dirname, '.env') }); // server/.env
+dotenv.config({ path: join(__dirname, '.env.local') }); // server/.env.local (local overrides)
+dotenv.config(); // process.cwd() .env
 
 const app = express();
 // Professional SRE Rule: Always allow the environment to override the PORT
@@ -36,37 +39,34 @@ const razorpay = new Razorpay({
 
 console.log(`💳 Razorpay Initialized with Key ID: ${RAZORPAY_KEY_ID.substring(0, 8)}...`);
 
-// Google OAuth Configuration
-// Client IDs are NOT secrets. We keep a safe fallback so auth doesn't silently break
-// if the environment variable isn't configured (common on first Render deploy).
-const DEFAULT_GOOGLE_WEB_CLIENT_ID = '977430971765-k7csafri1sidju96oikgr74ab0l9j4kn.apps.googleusercontent.com';
-const DEFAULT_GOOGLE_ANDROID_CLIENT_ID = '977430971765-91446b64piqpemo0ilol9v0q9mqpr59m.apps.googleusercontent.com';
-const GOOGLE_WEB_CLIENT_ID = (
-  process.env.GOOGLE_CLIENT_ID ||
-  process.env.GOOGLE_WEB_CLIENT_ID ||
-  DEFAULT_GOOGLE_WEB_CLIENT_ID
-).trim();
+// Google OAuth Configuration (use same client ID as frontend; Render may set VITE_GOOGLE_CLIENT_ID only)
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '';
+const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 
-// Optional: if you ever mint tokens with a native Android client id, allow it too.
-const GOOGLE_ANDROID_CLIENT_ID = (
-  process.env.GOOGLE_ANDROID_CLIENT_ID ||
-  DEFAULT_GOOGLE_ANDROID_CLIENT_ID
-).trim();
-
-// google-auth-library allows audience to be a string OR an array of strings.
-const GOOGLE_OAUTH_AUDIENCES = [GOOGLE_WEB_CLIENT_ID, GOOGLE_ANDROID_CLIENT_ID].filter(Boolean);
-const googleClient = new OAuth2Client(GOOGLE_WEB_CLIENT_ID);
-
-console.log(`🔐 Google OAuth Initialized. Web Client ID: ${GOOGLE_WEB_CLIENT_ID.substring(0, 20)}...`);
-if (GOOGLE_ANDROID_CLIENT_ID) {
-  console.log(`🔐 Google OAuth Additional Audience (Android): ${GOOGLE_ANDROID_CLIENT_ID.substring(0, 20)}...`);
+if (googleClient) {
+  console.log(`🔐 Google OAuth Initialized with Client ID: ${GOOGLE_CLIENT_ID.substring(0, 20)}...`);
 } else {
-  console.log('ℹ️ Google OAuth Android audience not set (optional).');
+  console.warn('⚠️ Google OAuth not configured. Set GOOGLE_CLIENT_ID environment variable.');
+}
+
+// Testing: allow multiple daily run completions per day (set ALLOW_MULTIPLE_DAILY_RUNS=true)
+const ALLOW_MULTIPLE_DAILY_RUNS = process.env.ALLOW_MULTIPLE_DAILY_RUNS === 'true';
+if (ALLOW_MULTIPLE_DAILY_RUNS) {
+  console.warn('⚠️ ALLOW_MULTIPLE_DAILY_RUNS is enabled — daily run can be completed multiple times per day (testing only).');
 }
 
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Allow Google Sign-In / OAuth popups to use postMessage (fixes "COOP would block window.postMessage" on Render)
+app.use((_req, res, next) => {
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+  next();
+});
+
+// Admin Panel API (RBAC-protected; separate auth from player auth)
+app.use('/api/admin', adminRouter);
 
 // Serve static files from the 'dist' directory in production
 const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
@@ -89,13 +89,23 @@ if (isProduction) {
   console.log('🚀 Running in DEVELOPMENT mode.');
 }
 
-// MongoDB Connection
-const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://vimaurya24_db_user:jrPF6GqaTX9H40s1@findmypuppy.q6hlrak.mongodb.net/findmypuppy?appName=findmypuppy";
+// MongoDB Connection (Render uses MONGODB_URI; support both)
+const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI || "mongodb+srv://vimaurya24_db_user:jrPF6GqaTX9H40s1@findmypuppy.q6hlrak.mongodb.net/findmypuppy?appName=findmypuppy";
 const COLLECTION_NAME = "user"; 
 
-mongoose.connect(MONGO_URI)
+mongoose.connect(MONGO_URI, {
+  maxPoolSize: 10, // Maintain up to 10 socket connections
+  serverSelectionTimeoutMS: 30000, // Keep trying to send operations for 30 seconds (default)
+  socketTimeoutMS: 45000, // Close sockets after 45 seconds of inactivity
+})
   .then(() => console.log('✅ Connected to MongoDB Atlas successfully!'))
-  .catch(err => console.error('❌ MongoDB Connection Error:', err));
+  .catch(err => {
+    console.error('❌ MongoDB Connection Error:', err.message);
+    if (err.name === 'MongooseServerSelectionError') {
+      console.error('   -> HINT: Check your IP Whitelist in MongoDB Atlas. Your current IP might be blocked.');
+      console.error('   -> HINT: Ensure your firewall allows outbound traffic on port 27017.');
+    }
+  });
 
 // Schema Definition
 const userSchema = new mongoose.Schema({
@@ -119,12 +129,30 @@ const userSchema = new mongoose.Schema({
   totalCheckIns: { type: Number, default: 0 }, // Total number of check-ins
   puppyAge: { type: Number, default: 0 }, // Puppy age in days (0-7, then cycles)
   puppySize: { type: Number, default: 1 }, // Puppy size multiplier (1.0 to 2.0 based on age)
+  streakFreezeWeek: { type: String, default: null }, // ISO week "YYYY-Www" when user last used streak freeze
+  lastDailyPuzzleDate: { type: String, default: null }, // YYYY-MM-DD - last day user completed daily puzzle
+  puppyRunHighScore: { type: Number, default: 0 }, // Best score in Puppy Run game
+  lastPlayedAt: { type: Date, default: null }, // Last time user played a level (for comeback bonus)
+  comebackBonusClaimed: { type: Boolean, default: false }, // One-time bonus after 7+ days away
+  achievements: { type: [String], default: [] }, // Array of achievement IDs unlocked
+  weeklyChallengeWeek: { type: String, default: null }, // "YYYY-Www"
+  weeklyChallengeProgress: { type: mongoose.Schema.Types.Mixed, default: { easy: 0, medium: 0, hard: 0 } },
+  weeklyChallengeClaimed: { type: Boolean, default: false },
+  unlockedThemes: { type: [String], default: ['sunny', 'night'] }, // Themes unlocked by user (default: first 2)
   createdAt: { type: Date, default: Date.now },
-  lastLogin: { type: Date, default: Date.now }
+  lastLogin: { type: Date, default: Date.now },
+  // Admin: ban
+  banned: { type: Boolean, default: false },
+  bannedAt: { type: Date },
+  bannedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'AdminUser' },
+  bannedReason: { type: String },
 }, { collection: COLLECTION_NAME });
 
 // Ensure strict is false for this model just in case
 userSchema.set('strict', false);
+
+// Optimize: Add index on username for faster lookups (email is already indexed by unique: true)
+userSchema.index({ username: 1 });
 
 // Note: Email field already has index via 'unique: true' and 'index: true' in schema definition
 // No need for explicit userSchema.index() call to avoid duplicate index warning
@@ -146,6 +174,9 @@ const purchaseHistorySchema = new mongoose.Schema({
   // How the purchase was made: 'Money' (₹) or 'Points' (Pts)
   purchaseMode: { type: String, enum: ['Money', 'Points','Referral'], default: 'Money' }
 }, { collection: 'purchaseHistory' });
+
+// Optimize: Add compound index for fetching history by username
+purchaseHistorySchema.index({ username: 1, purchaseDate: -1 });
 
 const PurchaseHistory = mongoose.model('PurchaseHistory', purchaseHistorySchema);
 
@@ -192,7 +223,8 @@ const initializePriceOffer = async () => {
 // Run initialization after mongoose connection is established
 mongoose.connection.once('open', async () => {
   initializePriceOffer();
-  
+  seedFirstAdmin().catch((err) => console.error('Admin seed error:', err));
+
   // Migration: Ensure all existing users have the 'referredBy' field
   try {
     // 1. Add referredBy only where it is missing, null, or empty
@@ -260,30 +292,17 @@ app.get('/api/health', (req, res) => {
 // Login Endpoint
 app.post('/api/login', async (req, res) => {
   try {
-    const { username, password, email } = req.body;
+    const { username, password } = req.body;
     
-    // Support login with either username or email
-    let user;
-    if (email) {
-      // Try to find user by email first
-      user = await User.findOne({ email });
-      if (!user) {
-        // If not found by email, try username
-        user = await User.findOne({ username: email });
-      }
-    } else if (username) {
-      // Find user by username
-      user = await User.findOne({ username });
-      if (!user) {
-        // If not found by username, try email
-        user = await User.findOne({ email: username });
-      }
-    } else {
-      return res.status(400).json({ success: false, message: "Username or email is required." });
-    }
+    // Find user by username
+    const user = await User.findOne({ username });
     
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found. Please sign up." });
+    }
+
+    if (user.banned) {
+      return res.status(403).json({ success: false, message: "This account has been banned." });
     }
 
     // Skip password check for OAuth users
@@ -321,7 +340,8 @@ app.post('/api/login', async (req, res) => {
         levelPassedEasy: user.levelPassedEasy || 0,
         levelPassedMedium: user.levelPassedMedium || 0,
         levelPassedHard: user.levelPassedHard || 0,
-        referredBy: user.referredBy || ""
+        referredBy: user.referredBy || "",
+        puppyRunHighScore: user.puppyRunHighScore || 0
       } 
     });
   } catch (error) {
@@ -343,59 +363,7 @@ app.post('/api/signup', async (req, res) => {
     // Check if user already exists
     const existingUser = await User.findOne({ $or: [{ email }, { username }] });
     if (existingUser) {
-      // If email exists, attempt to login the user automatically
-      if (existingUser.email === email) {
-        // Check if it's a Google OAuth account
-        if (existingUser.authProvider === 'google') {
-          return res.status(409).json({ 
-            success: false, 
-            message: "An account with this email already exists. Please use 'Sign in with Google'." 
-          });
-        }
-        
-        // If it's a local account, try to authenticate with the provided password
-        if (existingUser.password) {
-          const isPasswordValid = await bcrypt.compare(password, existingUser.password);
-          if (isPasswordValid) {
-            // Password matches - log them in automatically
-            existingUser.lastLogin = new Date();
-            await existingUser.save();
-            
-            return res.status(200).json({ 
-              success: true, 
-              message: "Login successful! Welcome back.", 
-              user: { 
-                username: existingUser.username, 
-                email: existingUser.email,
-                hints: existingUser.hints || 0,
-                points: existingUser.points || 0,
-                premium: existingUser.premium || false,
-                levelPassedEasy: existingUser.levelPassedEasy || 0,
-                levelPassedMedium: existingUser.levelPassedMedium || 0,
-                levelPassedHard: existingUser.levelPassedHard || 0,
-                referredBy: existingUser.referredBy || ""
-              } 
-            });
-          } else {
-            // Email exists but password is incorrect
-            return res.status(401).json({ 
-              success: false, 
-              message: "An account with this email already exists. The password you entered is incorrect." 
-            });
-          }
-        } else {
-          // Email exists but no password set (shouldn't happen for local accounts)
-          return res.status(409).json({ 
-            success: false, 
-            message: "An account with this email already exists. Please use the regular login." 
-          });
-        }
-      }
-      
-      // Username exists but email doesn't match
-      if (existingUser.username === username) {
-        return res.status(409).json({ success: false, message: "Username already exists. Please choose a different username." });
-      }
+      return res.status(409).json({ success: false, message: "Username or Email already exists." });
     }
 
     // Handle Referral Logic
@@ -503,7 +471,8 @@ app.post('/api/signup', async (req, res) => {
       premium: verifiedUser.premium,
       levelPassedEasy: verifiedUser.levelPassedEasy,
       levelPassedMedium: verifiedUser.levelPassedMedium,
-      levelPassedHard: verifiedUser.levelPassedHard
+      levelPassedHard: verifiedUser.levelPassedHard,
+      puppyRunHighScore: verifiedUser.puppyRunHighScore || 0
     };
 
     console.log(`📤 SENDING SIGNUP RESPONSE:`, { 
@@ -530,13 +499,28 @@ app.post('/api/signup', async (req, res) => {
   }
 });
 
+// Normalize env value: trim, remove surrounding quotes, remove internal spaces (Gmail App Password is 16 chars)
+function normalizeEnvValue(val) {
+  if (val == null || typeof val !== 'string') return '';
+  let s = val.trim();
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    s = s.slice(1, -1).trim();
+  }
+  return s;
+}
+
+// Gmail App Password is 16 chars; Google shows it as "xxxx xxxx xxxx xxxx" - strip spaces for SMTP
+function normalizeAppPassword(val) {
+  const s = normalizeEnvValue(val);
+  return s.replace(/\s+/g, '');
+}
+
 // Email Configuration for Password Reset (moved up for better organization)
 const createTransporter = () => {
   // Use environment variables for email configuration
-  // For Gmail: Use App Password (not regular password)
-  // Important: Trim whitespace from credentials as they often have trailing spaces
-  const smtpUser = (process.env.SMTP_USER || process.env.EMAIL_USER || '').trim();
-  const smtpPass = (process.env.SMTP_PASS || process.env.EMAIL_PASS || '').trim();
+  // For Gmail: Use App Password (not regular password) - see https://myaccount.google.com/apppasswords
+  const smtpUser = normalizeEnvValue(process.env.SMTP_USER || process.env.EMAIL_USER || '');
+  const smtpPass = normalizeAppPassword(process.env.SMTP_PASS || process.env.EMAIL_PASS || '');
   
   // Get SMTP settings
   // For production/Render: Try port 465 with SSL first (more reliable than 587)
@@ -564,12 +548,9 @@ const createTransporter = () => {
         user: smtpUser,
         pass: smtpPass
       },
-      // Gmail App Passwords: Standard configuration
+      // Gmail App Passwords: Standard configuration (use Node default TLS, avoid deprecated SSLv3)
       tls: {
-        rejectUnauthorized: false, // Allow self-signed certificates (useful for development)
-        // Additional TLS options for production
-        ciphers: 'SSLv3',
-        minVersion: 'TLSv1'
+        rejectUnauthorized: false // Allow self-signed certs in development
       },
       // Connection timeout settings for Render/production environments
       // Longer timeouts for production to handle Gmail SMTP slowness on cloud platforms
@@ -614,50 +595,30 @@ const createTransporter = () => {
 
     const transporter = nodemailer.createTransport(emailConfig);
     
-    // Skip verification if SKIP_EMAIL_VERIFY is set (useful for production when Gmail blocks connections)
-    const skipVerification = process.env.SKIP_EMAIL_VERIFY === 'true' || 
+    // Skip verification in development or when requested (avoids 535 on startup; send is still attempted)
+    const isDev = process.env.NODE_ENV !== 'production' && process.env.RENDER !== 'true';
+    const skipVerification = process.env.SKIP_EMAIL_VERIFY === 'true' ||
+                              isDev ||
                               (process.env.RENDER === 'true' && process.env.SKIP_EMAIL_VERIFY !== 'false');
     
     if (skipVerification) {
-      console.log('⚠️  Email verification skipped (SKIP_EMAIL_VERIFY=true or Render detected)');
-      console.log('   Email transporter created. Verification will happen on first email send.');
-      console.log('   This is recommended when Gmail SMTP blocks connections from cloud platforms.');
+      console.log('📧 Email transporter created (verification skipped).');
+      if (isDev) {
+        console.log('   For password-reset emails: use Gmail App Password in .env — see PASSWORD_RESET_SETUP.md');
+      }
     } else {
       // Verify transporter connection on startup (non-blocking with timeout)
-      // Note: Verification failure won't prevent emails from being sent
       const verifyTimeout = setTimeout(() => {
-        console.warn('⏱️  Email verification is taking too long, skipping...');
-        console.warn('   Email transporter created. Verification will happen on first email send.');
-        console.warn('   If this happens frequently, set SKIP_EMAIL_VERIFY=true in environment variables.');
-      }, 10000); // 10 second timeout for verification
+        console.warn('⏱️  Email verification timeout; transporter ready for first send.');
+      }, 10000);
       
       transporter.verify((error, success) => {
         clearTimeout(verifyTimeout);
         if (error) {
-          console.error('❌ Email service verification failed:');
-          console.error(`   Error: ${error.message}`);
-          if (error.responseCode === 535 || error.responseCode === '535') {
-            console.error('   🔐 Authentication Error:');
-            console.error('      - Make sure you are using an App Password (not your regular Gmail password)');
-            console.error('      - Ensure 2-Factor Authentication is enabled on your Google account');
-            console.error('      - Generate a new App Password at: https://myaccount.google.com/apppasswords');
-            console.error('      - Check that SMTP_USER and SMTP_PASS environment variables are set correctly');
-            console.error('      - Verify the password has no extra spaces (it should be trimmed automatically)');
-          } else if (error.message && error.message.includes('timeout')) {
-            console.error('   ⏱️  Connection Timeout:');
-            console.error('      - Gmail SMTP may be blocking connections from this IP address');
-            console.error('      - This is common on cloud platforms like Render');
-            console.error('      - Set SKIP_EMAIL_VERIFY=true to skip verification (emails will still work)');
-          } else {
-            console.error('   Please check your SMTP credentials in environment variables.');
+          console.warn('⚠️  Email verification failed (transporter still used for sends):', error.message?.split('\n')[0] || error.message);
+          if (error.responseCode === 535) {
+            console.warn('   Use Gmail App Password in .env — see PASSWORD_RESET_SETUP.md');
           }
-          if (error.command) {
-            console.error(`   Command: ${error.command}`);
-          }
-          if (error.response) {
-            console.error(`   Response: ${error.response}`);
-          }
-          console.warn('⚠️  Email transporter created but verification failed. Emails may still work, but please verify your credentials.');
         } else {
           console.log('✅ Email service verified and ready');
           console.log(`   SMTP Host: ${smtpHost}:${smtpPort}`);
@@ -819,7 +780,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       return res.status(500).json(errorResponse);
     }
 
-    const fromEmail = (process.env.SMTP_USER || process.env.EMAIL_USER || '').trim();
+    const fromEmail = normalizeEnvValue(process.env.SMTP_USER || process.env.EMAIL_USER || '');
     
     // Validate email configuration before sending
     if (!fromEmail) {
@@ -990,9 +951,7 @@ Find My Puppy | Where Adventure Meets Fun 🎮
         `
       };
 
-      // Send email asynchronously (non-blocking) to prevent request timeout
-      // This allows password reset to work even if email service is unavailable
-      // IMPORTANT: Email is sent in background - response is sent immediately to user
+      // Send email and await so we only return success when the user's inbox receives the link
       const sendEmailAsync = async () => {
         const isProduction = process.env.RENDER === 'true' || process.env.NODE_ENV === 'production';
         // Use longer timeout for production to handle Gmail SMTP slowness on cloud platforms
@@ -1017,7 +976,7 @@ Find My Puppy | Where Adventure Meets Fun 🎮
                     secure: true, // Required for port 465
                     auth: {
                       user: fromEmail,
-                      pass: (process.env.SMTP_PASS || process.env.EMAIL_PASS || '').trim()
+                      pass: normalizeAppPassword(process.env.SMTP_PASS || process.env.EMAIL_PASS || '')
                     },
                     tls: {
                       rejectUnauthorized: false
@@ -1164,28 +1123,19 @@ Find My Puppy | Where Adventure Meets Fun 🎮
         console.error(`🔗 [FORGOT-PASSWORD] IMPORTANT: Reset URL (use this if email fails):`);
         console.error(`   ${resetUrl}`);
         console.error('❌ ===========================================\n');
-        
-        // Don't throw - just log the error since email is sent asynchronously
-        // The reset token is already saved, so password reset will still work
-        console.error('   ⚠️  Email failed but reset token is valid. User can still reset password using the link above.');
+        throw emailError;
         }
       };
 
-      // Start email sending asynchronously (don't await - fire and forget)
-      // This prevents blocking the response even if email service is slow/unavailable
-      sendEmailAsync().catch(err => {
-        console.error('[FORGOT-PASSWORD] Unhandled error in async email send:', err);
-      });
+      // Await email send so we only return success when the registered email receives the link
+      await sendEmailAsync();
 
-      // Always return success to user (security best practice - don't reveal if email was sent)
-      // The reset token is saved in the database, so password reset will work
-      // If email fails, the reset URL is logged in server logs for manual retrieval
-      console.log(`✅ [FORGOT-PASSWORD] Password reset token generated and saved for ${user.email}`);
-      console.log(`🔗 [FORGOT-PASSWORD] Reset URL (also in logs): ${resetUrl}`);
+      console.log(`✅ [FORGOT-PASSWORD] Password reset email sent to ${user.email}`);
+      console.log(`🔗 [FORGOT-PASSWORD] Reset URL: ${resetUrl}`);
       
       res.status(200).json({ 
         success: true, 
-        message: "If an account with that email exists, a password reset link has been sent." 
+        message: "A password reset link has been sent to your email address. Please check your inbox." 
       });
   } catch (error) {
     console.error('\n❌ ========== FORGOT PASSWORD ENDPOINT ERROR ==========');
@@ -1212,10 +1162,17 @@ Find My Puppy | Where Adventure Meets Fun 🎮
     
     console.error('❌ ===================================================\n');
     
-    // Return detailed error in development, generic in production
+    // User-friendly message when email send failed so they know to try again or check config
+    const isEmailSendError = error.code === 'EAUTH' || error.code === 'ETIMEDOUT' || 
+      error.code === 'ECONNECTION' || error.code === 'ESOCKET' ||
+      (error.message && (error.message.includes('Email') || error.message.includes('timeout') || error.message.includes('SMTP')));
+    const userMessage = isEmailSendError
+      ? "We couldn't send the reset email. Please try again in a few minutes or contact support."
+      : "Server error processing password reset request.";
+    
     res.status(500).json({ 
       success: false, 
-      message: "Server error processing password reset request.",
+      message: userMessage,
       ...(process.env.NODE_ENV !== 'production' && {
         error: error.message,
         errorType: error.constructor.name
@@ -1317,6 +1274,101 @@ app.post('/api/auth/reset-password', async (req, res) => {
   }
 });
 
+// Delete Account (username + password verification)
+app.post('/api/auth/delete-account', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({ success: false, message: "Username and password are required." });
+    }
+
+    const user = await User.findOne({ username: username.trim() });
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+
+    // Google OAuth users must use delete-account-google
+    if (user.authProvider === 'google') {
+      return res.status(400).json({
+        success: false,
+        message: "This account uses Google sign-in. Please use 'Verify with Google & Delete' on the delete account page."
+      });
+    }
+
+    if (!user.password) {
+      return res.status(400).json({ success: false, message: "Invalid authentication method." });
+    }
+
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({ success: false, message: "Incorrect password." });
+    }
+
+    // Delete purchase history for this user
+    await PurchaseHistory.deleteMany({ username: user.username });
+
+    // Delete the user
+    await User.deleteOne({ _id: user._id });
+
+    console.log(`[DELETE-ACCOUNT] Account permanently deleted: ${user.username} (${user.email})`);
+
+    res.status(200).json({ success: true, message: "Your account has been permanently deleted." });
+  } catch (error) {
+    console.error('[DELETE-ACCOUNT] Error:', error);
+    res.status(500).json({ success: false, message: "Server error deleting account. Please try again." });
+  }
+});
+
+// Delete Account (Google ID token verification)
+app.post('/api/auth/delete-account-google', async (req, res) => {
+  try {
+    const { idToken } = req.body;
+
+    if (!idToken) {
+      return res.status(400).json({ success: false, message: "Google ID token is required." });
+    }
+
+    if (!googleClient) {
+      return res.status(503).json({
+        success: false,
+        message: "Google sign-in is not configured. Please contact support at findmypuppys@gmail.com to delete your account."
+      });
+    }
+
+    const ticket = await googleClient.verifyIdToken({
+      idToken,
+      audience: GOOGLE_CLIENT_ID,
+    });
+
+    const payload = ticket.getPayload();
+    if (!payload) {
+      return res.status(401).json({ success: false, message: "Invalid Google token." });
+    }
+
+    const googleId = payload.sub;
+    const user = await User.findOne({ googleId });
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: "No account found for this Google account." });
+    }
+
+    // Delete purchase history for this user
+    await PurchaseHistory.deleteMany({ username: user.username });
+
+    // Delete the user
+    await User.deleteOne({ _id: user._id });
+
+    console.log(`[DELETE-ACCOUNT] Account permanently deleted (Google): ${user.username} (${user.email})`);
+
+    res.status(200).json({ success: true, message: "Your account has been permanently deleted." });
+  } catch (error) {
+    console.error('[DELETE-ACCOUNT-GOOGLE] Error:', error);
+    res.status(500).json({ success: false, message: "Server error deleting account. Please try again." });
+  }
+});
+
 // Google OAuth Sign In Endpoint
 app.post('/api/auth/google/signin', async (req, res) => {
   try {
@@ -1327,13 +1379,17 @@ app.post('/api/auth/google/signin', async (req, res) => {
     }
 
     if (!googleClient) {
-      return res.status(500).json({ success: false, message: "Google OAuth not configured on server." });
+      console.error('Google sign-in attempted but GOOGLE_CLIENT_ID is not set (e.g. on Render set it in Environment).');
+      return res.status(503).json({
+        success: false,
+        message: "Google sign-in is not configured on this server. Set GOOGLE_CLIENT_ID in the server environment (e.g. Render dashboard)."
+      });
     }
 
     // Verify the Google ID token
     const ticket = await googleClient.verifyIdToken({
       idToken,
-      audience: GOOGLE_OAUTH_AUDIENCES,
+      audience: GOOGLE_CLIENT_ID,
     });
 
     const payload = ticket.getPayload();
@@ -1346,13 +1402,37 @@ app.post('/api/auth/google/signin', async (req, res) => {
     // Check if user exists with this Google ID
     let user = await User.findOne({ googleId });
 
+    if (user && user.banned) {
+      return res.status(403).json({ success: false, message: "This account has been banned." });
+    }
+
     if (!user) {
-      // User doesn't exist - check if email exists (might be a different auth method)
+      // User doesn't exist by googleId - check if email exists (e.g. signed up with email/password)
       const existingUser = await User.findOne({ email });
       if (existingUser) {
-        return res.status(409).json({ 
-          success: false, 
-          message: "An account with this email already exists. Please use the regular login." 
+        if (existingUser.banned) {
+          return res.status(403).json({ success: false, message: "This account has been banned." });
+        }
+        // Link Google to existing account: same user can sign in with password or Google
+        existingUser.googleId = googleId;
+        existingUser.lastLogin = new Date();
+        await existingUser.save();
+
+        return res.status(200).json({
+          success: true,
+          message: "Account linked! You can now sign in with Google or password.",
+          user: {
+            username: existingUser.username,
+            email: existingUser.email,
+            hints: existingUser.hints || 0,
+            points: existingUser.points || 0,
+            premium: existingUser.premium || false,
+            levelPassedEasy: existingUser.levelPassedEasy || 0,
+            levelPassedMedium: existingUser.levelPassedMedium || 0,
+            levelPassedHard: existingUser.levelPassedHard || 0,
+            referredBy: existingUser.referredBy || "",
+            puppyRunHighScore: existingUser.puppyRunHighScore || 0
+          }
         });
       }
 
@@ -1440,7 +1520,8 @@ app.post('/api/auth/google/signin', async (req, res) => {
           levelPassedEasy: user.levelPassedEasy || 0,
           levelPassedMedium: user.levelPassedMedium || 0,
           levelPassedHard: user.levelPassedHard || 0,
-          referredBy: user.referredBy || ""
+          referredBy: user.referredBy || "",
+          puppyRunHighScore: user.puppyRunHighScore || 0
         }
       });
     }
@@ -1461,12 +1542,17 @@ app.post('/api/auth/google/signin', async (req, res) => {
         levelPassedEasy: user.levelPassedEasy || 0,
         levelPassedMedium: user.levelPassedMedium || 0,
         levelPassedHard: user.levelPassedHard || 0,
-        referredBy: user.referredBy || ""
+        referredBy: user.referredBy || "",
+        puppyRunHighScore: user.puppyRunHighScore || 0
       }
     });
   } catch (error) {
     console.error('Google OAuth Sign In Error:', error);
-    res.status(500).json({ success: false, message: "Server error during Google sign in." });
+    const isTokenError = error?.message?.includes('Token') || error?.message?.includes('audience') || error?.message?.includes('verify');
+    const message = isTokenError
+      ? "Invalid or expired Google sign-in. Try signing in again."
+      : "Server error during Google sign in. If this persists, check server logs and GOOGLE_CLIENT_ID.";
+    res.status(isTokenError ? 401 : 500).json({ success: false, message });
   }
 });
 
@@ -1510,7 +1596,8 @@ app.post('/api/user/update-hints', async (req, res) => {
 app.get('/api/daily-checkin/status/:username', async (req, res) => {
   try {
     const { username } = req.params;
-    const user = await User.findOne({ username });
+    // Optimize: use lean() for faster read-only access
+    const user = await User.findOne({ username }).lean();
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found." });
     }
@@ -1523,6 +1610,17 @@ app.get('/api/daily-checkin/status/:username', async (req, res) => {
     const puppyAge = Math.min(user.checkInStreak || 0, 7); // Age 0-7 days
     const puppySize = 1.0 + (puppyAge * 0.14); // Size grows from 1.0 to ~2.0 over 7 days
 
+    const getISOWeek = (d) => {
+      const date = new Date(d);
+      date.setHours(0, 0, 0, 0);
+      date.setDate(date.getDate() + 4 - (date.getDay() || 7));
+      const yearStart = new Date(date.getFullYear(), 0, 1);
+      const weekNo = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+      return `${date.getFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+    };
+    const thisWeek = getISOWeek(today);
+    const hasUsedFreezeThisWeek = (user.streakFreezeWeek || '') === thisWeek;
+
     res.status(200).json({
       success: true,
       lastCheckInDate: user.lastCheckInDate || null,
@@ -1531,7 +1629,9 @@ app.get('/api/daily-checkin/status/:username', async (req, res) => {
       hasCheckedInToday,
       today: todayString,
       puppyAge,
-      puppySize
+      puppySize,
+      hasUsedFreezeThisWeek,
+      streakFreezeAvailable: !hasUsedFreezeThisWeek
     });
   } catch (error) {
     console.error('Get Daily Check-In Status Error:', error);
@@ -1574,16 +1674,37 @@ app.post('/api/daily-checkin/complete', async (req, res) => {
       });
     }
 
-    // Calculate streak
+    // Get ISO week string (e.g. "2025-W06") for streak freeze - one freeze per week
+    const getISOWeek = (d) => {
+      const date = new Date(d);
+      date.setHours(0, 0, 0, 0);
+      date.setDate(date.getDate() + 4 - (date.getDay() || 7));
+      const yearStart = new Date(date.getFullYear(), 0, 1);
+      const weekNo = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+      return `${date.getFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+    };
+    const thisWeek = getISOWeek(today);
+
+    // Calculate streak (with optional streak freeze: one per week when user missed exactly 1 day)
     let newStreak = 1;
+    let usedFreeze = false;
     if (user.lastCheckInDate) {
       const lastCheckIn = new Date(user.lastCheckInDate);
       const daysDiff = Math.floor((today.getTime() - lastCheckIn.getTime()) / (1000 * 60 * 60 * 24));
       if (daysDiff === 1) {
         // Consecutive day - increment streak
         newStreak = (user.checkInStreak || 0) + 1;
+      } else if (daysDiff === 2) {
+        // Missed exactly one day - allow streak freeze once per week
+        const freezeUsedThisWeek = (user.streakFreezeWeek || '') === thisWeek;
+        if (!freezeUsedThisWeek) {
+          newStreak = (user.checkInStreak || 0) + 1;
+          usedFreeze = true;
+          user.streakFreezeWeek = thisWeek;
+        } else {
+          newStreak = 1;
+        }
       } else if (daysDiff > 1) {
-        // Missed a day - reset streak and puppy age
         newStreak = 1;
       }
     }
@@ -1635,6 +1756,8 @@ app.post('/api/daily-checkin/complete', async (req, res) => {
         ? `Puppy fed! 🎉 +${hintsEarned} hints earned!`
         : pointsEarned > 0
         ? `Puppy fed! 🎉 +${pointsEarned} points earned!`
+        : usedFreeze
+        ? "Puppy fed! 🧊 Streak saved with freeze!"
         : "Puppy fed! 🐕",
       lastCheckInDate: user.lastCheckInDate,
       checkInStreak: user.checkInStreak,
@@ -1644,11 +1767,137 @@ app.post('/api/daily-checkin/complete', async (req, res) => {
       pointsEarned,
       totalHints: user.hints || 0,
       totalPoints: user.points || 0,
-      milestone: newStreak === 7 ? '7days' : newStreak === 30 ? '30days' : newStreak === 365 ? '1year' : null
+      milestone: newStreak === 7 ? '7days' : newStreak === 30 ? '30days' : newStreak === 365 ? '1year' : null,
+      usedStreakFreeze: usedFreeze
     });
   } catch (error) {
     console.error('Complete Daily Check-In Error:', error);
     res.status(500).json({ success: false, message: "Server error completing daily check-in." });
+  }
+});
+
+// Daily Puzzle / Daily Run - get status (has completed today?)
+app.get('/api/daily-puzzle/status/:username', async (req, res) => {
+  try {
+    const { username } = req.params;
+    if (!username) return res.status(400).json({ success: false, message: "Username required." });
+    const user = await User.findOne({ username }).select('lastDailyPuzzleDate').lean();
+    if (!user) return res.status(404).json({ success: false, message: "User not found." });
+    const today = new Date();
+    const todayString = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const hasCompletedToday = ALLOW_MULTIPLE_DAILY_RUNS ? false : (user.lastDailyPuzzleDate === todayString);
+    res.status(200).json({
+      success: true,
+      hasCompletedToday,
+      lastCompletedDate: user.lastDailyPuzzleDate || null
+    });
+  } catch (error) {
+    console.error('Daily puzzle status error:', error);
+    res.status(500).json({ success: false, message: "Server error." });
+  }
+});
+
+// Comeback bonus - claim 5 hints if user was away 7+ days (one-time per absence)
+app.post('/api/comeback-bonus/claim', async (req, res) => {
+  try {
+    const { username } = req.body;
+    if (!username) return res.status(400).json({ success: false, message: "Username required." });
+    const user = await User.findOne({ username });
+    if (!user) return res.status(404).json({ success: false, message: "User not found." });
+    if (user.comebackBonusClaimed) {
+      return res.status(200).json({ success: false, message: "Already claimed.", totalHints: user.hints || 0 });
+    }
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const lastPlayed = user.lastPlayedAt || user.lastLogin || user.createdAt;
+    if (lastPlayed && lastPlayed > sevenDaysAgo) {
+      return res.status(200).json({ success: false, message: "Come back after 7 days away to claim.", totalHints: user.hints || 0 });
+    }
+    const bonusHints = 5;
+    user.hints = (user.hints || 0) + bonusHints;
+    user.comebackBonusClaimed = true;
+    user.lastPlayedAt = new Date();
+    await user.save();
+    res.status(200).json({
+      success: true,
+      message: `Welcome back! +${bonusHints} hints!`,
+      hintsEarned: bonusHints,
+      totalHints: user.hints
+    });
+  } catch (error) {
+    console.error('Comeback bonus claim error:', error);
+    res.status(500).json({ success: false, message: "Server error." });
+  }
+});
+
+// Check if user is eligible for comeback bonus (for UI)
+app.get('/api/comeback-bonus/eligibility/:username', async (req, res) => {
+  try {
+    const { username } = req.params;
+    if (!username) return res.status(400).json({ success: false, message: "Username required." });
+    const user = await User.findOne({ username }).select('lastPlayedAt lastLogin createdAt comebackBonusClaimed').lean();
+    if (!user) return res.status(404).json({ success: false, message: "User not found." });
+    const lastPlayed = user.lastPlayedAt || user.lastLogin || user.createdAt;
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const eligible = !user.comebackBonusClaimed && lastPlayed && lastPlayed < sevenDaysAgo;
+    res.status(200).json({ success: true, eligible });
+  } catch (error) {
+    console.error('Comeback bonus eligibility error:', error);
+    res.status(500).json({ success: false, message: "Server error." });
+  }
+});
+
+// Daily Puzzle / Daily Run - complete (grant reward: 3 hints)
+app.post('/api/daily-puzzle/complete', async (req, res) => {
+  try {
+    const { username, puzzleId, score } = req.body;
+    if (!username) return res.status(400).json({ success: false, message: "Username required." });
+    const user = await User.findOne({ username });
+    if (!user) return res.status(404).json({ success: false, message: "User not found." });
+    const today = new Date();
+    const todayString = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    if (!ALLOW_MULTIPLE_DAILY_RUNS && user.lastDailyPuzzleDate === todayString) {
+      return res.status(200).json({
+        success: true,
+        message: "Already completed today's run!",
+        hintsEarned: 0,
+        totalHints: user.hints || 0
+      });
+    }
+    
+    // Calculate hints based on score
+    let hintsReward = 0;
+    const runScore = score || 0;
+    
+    if (runScore >= 1001) {
+      hintsReward = 5;
+    } else if (runScore >= 501) {
+      hintsReward = 2;
+    } else if (runScore >= 1) {
+      hintsReward = 1;
+    } else {
+      hintsReward = 0;
+    }
+
+    // Update high score if current run is better
+    if (runScore > (user.puppyRunHighScore || 0)) {
+      user.puppyRunHighScore = runScore;
+    }
+
+    user.lastDailyPuzzleDate = todayString;
+    user.hints = (user.hints || 0) + hintsReward;
+    await user.save();
+    res.status(200).json({
+      success: true,
+      message: `Run complete! +${hintsReward} hints!`,
+      hintsEarned: hintsReward,
+      totalHints: user.hints,
+      highScore: user.puppyRunHighScore
+    });
+  } catch (error) {
+    console.error('Daily puzzle complete error:', error);
+    res.status(500).json({ success: false, message: "Server error." });
   }
 });
 
@@ -1756,6 +2005,19 @@ app.post('/api/user/update-level-passed', async (req, res) => {
     } else {
       return res.status(400).json({ success: false, message: "Invalid difficulty. Must be 'Easy', 'Medium', or 'Hard'." });
     }
+    user.lastPlayedAt = new Date();
+
+    const thisWeek = getISOWeekString();
+    if (user.weeklyChallengeWeek !== thisWeek) {
+      user.weeklyChallengeWeek = thisWeek;
+      user.weeklyChallengeProgress = { easy: 0, medium: 0, hard: 0 };
+      user.weeklyChallengeClaimed = false;
+    }
+    const prog = user.weeklyChallengeProgress || { easy: 0, medium: 0, hard: 0 };
+    if (difficulty === 'Easy') prog.easy = (prog.easy || 0) + 1;
+    else if (difficulty === 'Medium') prog.medium = (prog.medium || 0) + 1;
+    else if (difficulty === 'Hard') prog.hard = (prog.hard || 0) + 1;
+    user.weeklyChallengeProgress = prog;
 
     await user.save();
 
@@ -1973,11 +2235,13 @@ app.get('/api/purchase-history/:username', async (req, res) => {
     // }
 
     // Only fetch purchases where mode is Money or Referral (exclude Points)
+    // Optimize: use lean() and ensure index is used
     const purchases = await PurchaseHistory.find({ 
       username,
       purchaseMode: { $in: ['Money', 'Referral'] }
     })
       .sort({ purchaseDate: -1 }) // Most recent first
+      .lean()
       .exec();
 
     res.status(200).json({ 
@@ -1998,6 +2262,191 @@ app.get('/api/purchase-history/:username', async (req, res) => {
 });
 
 // Leaderboard endpoint - Get top 10 users by points (excluding zero points)
+// ISO week string helper (e.g. "2025-W06") - used by streak freeze and weekly challenge
+function getISOWeekString() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + 4 - (d.getDay() || 7));
+  const yearStart = new Date(d.getFullYear(), 0, 1);
+  const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+  return `${d.getFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+}
+
+// Level of the day - deterministic level + difficulty for 2x points (client applies multiplier)
+app.get('/api/level-of-day', (req, res) => {
+  try {
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    let hash = 0;
+    for (let i = 0; i < dateStr.length; i++) {
+      const c = dateStr.charCodeAt(i);
+      hash = ((hash << 5) - hash) + c;
+      hash = hash & hash;
+    }
+    const levelId = (Math.abs(hash) % 100) + 1;
+    const diffIndex = Math.floor(Math.abs(hash) / 100) % 3;
+    const difficulties = ['Easy', 'Medium', 'Hard'];
+    res.status(200).json({
+      success: true,
+      levelId,
+      difficulty: difficulties[diffIndex],
+      date: dateStr
+    });
+  } catch (error) {
+    console.error('Level of day error:', error);
+    res.status(500).json({ success: false, message: "Server error." });
+  }
+});
+
+// Achievements - list definitions (static)
+const ACHIEVEMENT_DEFINITIONS = [
+  { id: 'first_level', name: 'First Steps', desc: 'Clear your first level', icon: '🌟' },
+  { id: 'easy_10', name: 'Easy Explorer', desc: 'Clear 10 Easy levels', icon: '🐕' },
+  { id: 'easy_50', name: 'Easy Master', desc: 'Clear 50 Easy levels', icon: '🏅' },
+  { id: 'medium_10', name: 'Medium Explorer', desc: 'Clear 10 Medium levels', icon: '🐶' },
+  { id: 'hard_5', name: 'Hard Starter', desc: 'Clear 5 Hard levels', icon: '🔥' },
+  { id: 'streak_7', name: 'Week Warrior', desc: '7-day check-in streak', icon: '📅' },
+  { id: 'streak_30', name: 'Monthly Champion', desc: '30-day check-in streak', icon: '👑' },
+  { id: 'referral_1', name: 'Friend Inviter', desc: 'Refer 1 friend who signed up', icon: '🤝' },
+  { id: 'no_hint_clear', name: 'Sharp Eyes', desc: 'Clear a level without using hints', icon: '👁️' }
+];
+
+app.get('/api/achievements', (req, res) => {
+  res.status(200).json({ success: true, achievements: ACHIEVEMENT_DEFINITIONS });
+});
+
+// Achievements - check and unlock (call after level clear, login, or check-in)
+app.post('/api/achievements/check', async (req, res) => {
+  try {
+    const { username } = req.body;
+    if (!username) return res.status(400).json({ success: false, message: "Username required." });
+    const user = await User.findOne({ username });
+    if (!user) return res.status(404).json({ success: false, message: "User not found." });
+    const current = user.achievements || [];
+    const easy = user.levelPassedEasy || 0;
+    const medium = user.levelPassedMedium || 0;
+    const hard = user.levelPassedHard || 0;
+    const streak = user.checkInStreak || 0;
+    const referredCount = await User.countDocuments({ referredBy: new RegExp(`^${username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\d{4}$`) });
+    const toUnlock = [];
+    if (easy >= 1 && !current.includes('first_level')) toUnlock.push('first_level');
+    if (easy >= 10 && !current.includes('easy_10')) toUnlock.push('easy_10');
+    if (easy >= 50 && !current.includes('easy_50')) toUnlock.push('easy_50');
+    if (medium >= 10 && !current.includes('medium_10')) toUnlock.push('medium_10');
+    if (hard >= 5 && !current.includes('hard_5')) toUnlock.push('hard_5');
+    if (streak >= 7 && !current.includes('streak_7')) toUnlock.push('streak_7');
+    if (streak >= 30 && !current.includes('streak_30')) toUnlock.push('streak_30');
+    if (referredCount >= 1 && !current.includes('referral_1')) toUnlock.push('referral_1');
+    if (toUnlock.length > 0) {
+      user.achievements = [...new Set([...current, ...toUnlock])];
+      await user.save();
+    }
+    res.status(200).json({
+      success: true,
+      achievements: user.achievements || [],
+      newlyUnlocked: toUnlock
+    });
+  } catch (error) {
+    console.error('Achievements check error:', error);
+    res.status(500).json({ success: false, message: "Server error." });
+  }
+});
+
+// Weekly challenge - get current challenge and progress
+app.get('/api/weekly-challenge', async (req, res) => {
+  try {
+    const { username } = req.query;
+    const thisWeek = getISOWeekString();
+    const target = { total: 5 };
+    if (!username) {
+      return res.status(200).json({ success: true, week: thisWeek, target, progress: { easy: 0, medium: 0, hard: 0 }, totalProgress: 0, claimed: false });
+    }
+    const user = await User.findOne({ username }).select('weeklyChallengeWeek weeklyChallengeProgress weeklyChallengeClaimed').lean();
+    let progress = { easy: 0, medium: 0, hard: 0 };
+    let claimed = false;
+    if (user) {
+      if (user.weeklyChallengeWeek === thisWeek) {
+        progress = user.weeklyChallengeProgress || progress;
+        if (typeof progress.easy !== 'number') progress.easy = 0;
+        if (typeof progress.medium !== 'number') progress.medium = 0;
+        if (typeof progress.hard !== 'number') progress.hard = 0;
+        claimed = user.weeklyChallengeClaimed || false;
+      }
+    }
+    const totalProgress = (progress.easy || 0) + (progress.medium || 0) + (progress.hard || 0);
+    res.status(200).json({
+      success: true,
+      week: thisWeek,
+      target,
+      progress,
+      totalProgress,
+      claimed
+    });
+  } catch (error) {
+    console.error('Weekly challenge get error:', error);
+    res.status(500).json({ success: false, message: "Server error." });
+  }
+});
+
+// Weekly challenge - claim reward (5 hints) when totalProgress >= 5 and not yet claimed
+app.post('/api/weekly-challenge/claim', async (req, res) => {
+  try {
+    const { username } = req.body;
+    if (!username) return res.status(400).json({ success: false, message: "Username required." });
+    const user = await User.findOne({ username });
+    if (!user) return res.status(404).json({ success: false, message: "User not found." });
+    const thisWeek = getISOWeekString();
+    if (user.weeklyChallengeWeek !== thisWeek) {
+      user.weeklyChallengeWeek = thisWeek;
+      user.weeklyChallengeProgress = { easy: 0, medium: 0, hard: 0 };
+      user.weeklyChallengeClaimed = false;
+    }
+    const prog = user.weeklyChallengeProgress || { easy: 0, medium: 0, hard: 0 };
+    const total = (prog.easy || 0) + (prog.medium || 0) + (prog.hard || 0);
+    if (total < 5) {
+      return res.status(400).json({ success: false, message: "Clear 5 levels this week to claim.", totalHints: user.hints || 0 });
+    }
+    if (user.weeklyChallengeClaimed) {
+      return res.status(200).json({ success: false, message: "Already claimed.", totalHints: user.hints || 0 });
+    }
+    const rewardHints = 5;
+    user.hints = (user.hints || 0) + rewardHints;
+    user.weeklyChallengeClaimed = true;
+    await user.save();
+    res.status(200).json({
+      success: true,
+      message: `Weekly challenge complete! +${rewardHints} hints!`,
+      hintsEarned: rewardHints,
+      totalHints: user.hints
+    });
+  } catch (error) {
+    console.error('Weekly challenge claim error:', error);
+    res.status(500).json({ success: false, message: "Server error." });
+  }
+});
+
+// Referral leaderboard - top referrers by count of referred users
+app.get('/api/leaderboard/referrals', async (req, res) => {
+  try {
+    const agg = await User.aggregate([
+      { $match: { referredBy: { $exists: true, $ne: null, $ne: "" } } },
+      { $group: { _id: "$referredBy", count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: 10 },
+      { $project: { referrerUsername: "$_id", referredCount: "$count", _id: 0 } }
+    ]);
+    const leaderboard = agg.map((row, index) => ({
+      username: row.referrerUsername,
+      rank: index + 1,
+      referredCount: row.referredCount
+    }));
+    res.status(200).json({ success: true, leaderboard });
+  } catch (error) {
+    console.error('Referral leaderboard error:', error);
+    res.status(500).json({ success: false, message: "Server error." });
+  }
+});
+
 app.get('/api/leaderboard', async (req, res) => {
   try {
     const { username } = req.query; // Get current username from query params
@@ -2064,14 +2513,22 @@ app.get('/api/leaderboard', async (req, res) => {
 app.get('/api/user/:username', async (req, res) => {
   try {
     const { username } = req.params;
-    
-    // Note: Authorization check can be added here if needed in the future
-    // Example: const currentUser = req.query.username || req.headers['x-current-user'];
+    // Get current user from query parameter or header (for authorization)
+    // const currentUser = req.query.username || req.headers['x-current-user'];
+
+    // // Authorization check: Users can only access their own data
+
+    // console.log("currentUser", currentUser);
+    // console.log("username", username);
     // if (!currentUser || currentUser !== username) {
-    //   return res.status(403).json({ success: false, message: "Access denied." });
+    //   return res.status(403).json({ 
+    //     success: false, 
+    //     message: "Access denied. You can only view your own user data." 
+    //   });
     // }
 
-    const user = await User.findOne({ username });
+    // Optimize: use lean() for faster read-only access
+    const user = await User.findOne({ username }).lean();
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found." });
     }
@@ -2087,12 +2544,166 @@ app.get('/api/user/:username', async (req, res) => {
         levelPassedEasy: user.levelPassedEasy || 0,
         levelPassedMedium: user.levelPassedMedium || 0,
         levelPassedHard: user.levelPassedHard || 0,
-        referredBy: user.referredBy || ""
+        referredBy: user.referredBy || "",
+        lastPlayedAt: user.lastPlayedAt || null,
+        comebackBonusClaimed: user.comebackBonusClaimed || false,
+        achievements: user.achievements || [],
+        unlockedThemes: user.unlockedThemes || ['sunny', 'night']
       } 
     });
   } catch (error) {
     console.error('Get User Error:', error);
     res.status(500).json({ success: false, message: "Server error fetching user data." });
+  }
+});
+
+// Get unlocked themes for a user
+app.get('/api/user/:username/themes', async (req, res) => {
+  try {
+    const { username } = req.params;
+    const user = await User.findOne({ username }).lean();
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+    res.status(200).json({ 
+      success: true, 
+      unlockedThemes: user.unlockedThemes || ['sunny', 'night']
+    });
+  } catch (error) {
+    console.error('Get Themes Error:', error);
+    res.status(500).json({ success: false, message: "Server error fetching themes." });
+  }
+});
+
+// Unlock a theme (by games completed or points spent)
+app.post('/api/user/:username/unlock-theme', async (req, res) => {
+  try {
+    const { username } = req.params;
+    const { theme, unlockMethod } = req.body; // unlockMethod: 'games' or 'points'
+    
+    if (!theme) {
+      return res.status(400).json({ success: false, message: "Theme is required." });
+    }
+    
+    const user = await User.findOne({ username });
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+    
+    // Ensure unlockedThemes exists
+    if (!user.unlockedThemes || user.unlockedThemes.length < 2) {
+      user.unlockedThemes = ['sunny', 'night'];
+    }
+    
+    // Check if already unlocked
+    if (user.unlockedThemes.includes(theme)) {
+      return res.status(200).json({ 
+        success: true, 
+        message: "Theme already unlocked.",
+        unlockedThemes: user.unlockedThemes
+      });
+    }
+    
+    // If unlocking with points, check balance
+    if (unlockMethod === 'points') {
+      const THEME_UNLOCK_COST = 25;
+      if ((user.points || 0) < THEME_UNLOCK_COST) {
+        return res.status(400).json({ 
+          success: false, 
+          message: `Not enough points. Need ${THEME_UNLOCK_COST} points to unlock this theme.` 
+        });
+      }
+      // Deduct points
+      user.points = (user.points || 0) - THEME_UNLOCK_COST;
+    }
+    
+    // Unlock the theme
+    user.unlockedThemes.push(theme);
+    await user.save();
+    
+    res.status(200).json({ 
+      success: true, 
+      message: unlockMethod === 'points' 
+        ? `Theme unlocked! ${25} points deducted.` 
+        : "Theme unlocked!",
+      unlockedThemes: user.unlockedThemes,
+      points: user.points
+    });
+  } catch (error) {
+    console.error('Unlock Theme Error:', error);
+    res.status(500).json({ success: false, message: "Server error unlocking theme." });
+  }
+});
+
+// Public game config (used by game client so admin changes reflect for all users)
+app.get('/api/game-config', async (req, res) => {
+  try {
+    const [maintenanceDoc, gameConfigDoc] = await Promise.all([
+      MaintenanceMode.findOne({ configKey: 'default' }).lean(),
+      GameConfig.findOne({ configKey: 'default' }).lean(),
+    ]);
+    if (maintenanceDoc && maintenanceDoc.enabled) {
+      return res.status(200).json({
+        success: true,
+        maintenance: {
+          enabled: true,
+          message: maintenanceDoc.message || 'Under maintenance. Please try again later.',
+        },
+        gameConfig: null,
+        priceOffer: null,
+      });
+    }
+    let gameConfig = gameConfigDoc;
+    if (!gameConfig) {
+      gameConfig = {
+        puppyCountEasy: 15,
+        puppyCountMedium: 25,
+        puppyCountHard: 40,
+        timerMediumSeconds: 150,
+        timerHardSeconds: 180,
+        wrongTapLimit: 3,
+        pointsPerLevelEasy: 5,
+        pointsPerLevelMedium: 10,
+        pointsPerLevelHard: 15,
+        levelsEnabled: true,
+        timerEnabled: true,
+      };
+    }
+    const offer = await PriceOffer.findOne({ hintPack: '100 Hints Pack' }).lean();
+    const priceOffer = offer ? {
+      hintPack: offer.hintPack,
+      marketPrice: offer.marketPrice,
+      offerPrice: offer.offerPrice,
+      hintCount: offer.hintCount,
+      offerReason: offer.offerReason || 'Special Offer',
+    } : {
+      hintPack: '100 Hints Pack',
+      marketPrice: 99,
+      offerPrice: 9,
+      hintCount: 100,
+      offerReason: 'Special Offer',
+    };
+    res.status(200).json({
+      success: true,
+      maintenance: { enabled: false, message: null },
+      gameConfig: {
+        puppyCountEasy: gameConfig.puppyCountEasy,
+        puppyCountMedium: gameConfig.puppyCountMedium,
+        puppyCountHard: gameConfig.puppyCountHard,
+        timerMediumSeconds: gameConfig.timerMediumSeconds,
+        timerHardSeconds: gameConfig.timerHardSeconds,
+        wrongTapLimit: gameConfig.wrongTapLimit,
+        pointsPerLevelEasy: gameConfig.pointsPerLevelEasy,
+        pointsPerLevelMedium: gameConfig.pointsPerLevelMedium,
+        pointsPerLevelHard: gameConfig.pointsPerLevelHard,
+        levelsEnabled: gameConfig.levelsEnabled !== false,
+        timerEnabled: gameConfig.timerEnabled !== false,
+      },
+      priceOffer,
+    });
+  } catch (error) {
+    console.error('Get game config error:', error);
+    res.status(500).json({ success: false, message: 'Server error fetching game config.' });
   }
 });
 
@@ -2402,8 +3013,11 @@ app.get('/privacy-policy.html', (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Backend Server running on http://localhost:${PORT} (${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'})`);
+// Try to listen on PORT; if EADDRINUSE, try next port (5775, 5776, ...) until one is free
+function startServer(tryPort) {
+  const server = app.listen(tryPort, () => {
+    const actualPort = server.address().port;
+    console.log(`🚀 Backend Server running on http://localhost:${actualPort} (${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'})`);
   
   if (isProduction) {
     // In production, for any request that doesn't match a static file or API route,
@@ -2426,12 +3040,13 @@ app.listen(PORT, () => {
       }
     });
   } else {
-    // Start the frontend dev server ONLY in development
+    // Start the frontend dev server ONLY in development (pass backend port so proxy works if we fell back to 5775+)
     console.log('📦 Starting frontend dev server...');
     const viteProcess = spawn('npm', ['run', 'dev'], {
       cwd: join(__dirname, '..'),
       stdio: 'inherit',
-      shell: true
+      shell: true,
+      env: { ...process.env, VITE_API_PORT: String(actualPort) }
     });
   
   viteProcess.on('error', (error) => {
@@ -2457,4 +3072,17 @@ app.listen(PORT, () => {
     process.exit(0);
   });
   }
-});
+  });
+
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`⚠️ Port ${tryPort} in use, trying ${tryPort + 1}...`);
+      startServer(tryPort + 1);
+    } else {
+      console.error('Server error:', err);
+      process.exit(1);
+    }
+  });
+}
+
+startServer(PORT);

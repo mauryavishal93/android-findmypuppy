@@ -74,10 +74,9 @@ export const DifficultyCard: React.FC<DifficultyCardProps> = ({
   return (
     <div 
       onClick={onClick}
-      className={`${color} text-white p-3 ${config.shape} shadow-lg cursor-pointer transition-all relative overflow-hidden group flex flex-col items-center justify-center aspect-[2/1] w-full hover:shadow-xl hover:scale-105 active:scale-95 ${config.borderStyle} hover:border-white/80`}
+      className={`${color} text-white p-4 ${config.shape} shadow-lg cursor-pointer transition-all relative overflow-hidden group flex flex-col items-center justify-center w-full h-full ${config.borderStyle} hover:border-white/80`}
       style={{
         boxShadow: '0 4px 12px rgba(0,0,0,0.2), inset 0 1px 2px rgba(255,255,255,0.25)',
-        touchAction: 'pan-x',
       }}
     >
       {/* Unique Background Pattern based on difficulty */}
@@ -99,54 +98,41 @@ export const DifficultyCard: React.FC<DifficultyCardProps> = ({
         </div>
       )}
 
-      {/* Animated Background Emoji - Different sizes per difficulty */}
-      <div className={`absolute -left-1 -bottom-1 opacity-15 ${difficulty === 'Easy' ? 'text-3xl' : difficulty === 'Medium' ? 'text-4xl' : 'text-5xl'} group-hover:scale-110 group-hover:rotate-12 transition-all duration-500`}>
+      {/* Animated Background Emoji */}
+      <div className={`absolute -left-2 -bottom-2 opacity-15 text-5xl group-hover:scale-110 group-hover:rotate-12 transition-all duration-500`}>
         {config.bgEmoji}
       </div>
       
       {/* Shimmer Effect on Hover */}
       <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
       
-      {/* Unique Decorative Elements per difficulty */}
-      {difficulty === 'Easy' && (
-        <div className="absolute top-1 right-1 text-sm opacity-25 group-hover:opacity-35 transition-opacity">
-          🌿
-        </div>
-      )}
-      {difficulty === 'Medium' && (
-        <div className="absolute top-1 right-1 text-sm opacity-25 group-hover:opacity-35 transition-opacity">
-          ⚡
-        </div>
-      )}
-      {difficulty === 'Hard' && (
-        <div className="absolute top-1 right-1 text-sm opacity-25 group-hover:opacity-35 transition-opacity">
-          💥
-        </div>
-      )}
+      {/* Decorative Elements */}
+      <div className="absolute top-2 right-2 text-sm opacity-30 group-hover:opacity-50 transition-opacity animate-pulse">
+        {config.decorative}
+      </div>
       
-      {/* Main Content - Top-Center Positioned */}
-      <div className="z-10 flex flex-col items-center justify-start text-center w-full pt-4">
-        {/* Creative Puppy Icon - Larger */}
-        <div className="text-5xl mb-1 drop-shadow-lg transform group-hover:scale-110 group-hover:rotate-6 transition-all flex items-center justify-center">
+      {/* Main Content */}
+      <div className="z-10 flex flex-col items-center justify-center text-center w-full h-full gap-1">
+        {/* Puppy Icon */}
+        <div className="text-5xl drop-shadow-lg transform group-hover:scale-110 group-hover:rotate-6 transition-all mb-1">
           {config.puppyIcon}
         </div>
         
-        {/* Difficulty Name - Larger */}
-        <h3 className="text-xl font-black leading-tight drop-shadow-lg mb-0.5 bg-gradient-to-r from-white to-yellow-100 bg-clip-text text-transparent w-full text-center">
+        {/* Difficulty Name */}
+        <h3 className="text-2xl font-black leading-none drop-shadow-md bg-gradient-to-r from-white to-yellow-50 bg-clip-text text-transparent">
           {difficulty}
         </h3>
         
-        {/* Description with Levels - Larger */}
-        <p className="text-white/95 text-xs font-bold flex items-center justify-center gap-1 mb-1 w-full text-center">
-          <span className="text-sm">{config.icon}</span>
-          {/* <span>{completedLevels}/{totalLevels} Levels</span> */}
-          <span className="text-white/90">{completedLevels}/{totalLevels} Levels</span>
-        </p>
-
-        {/* Points Badge - Larger */}
-        <div className="flex items-center justify-center gap-1.5 bg-white/40 backdrop-blur-md px-3 py-1.5 rounded-lg shadow-md border border-white/50">
-          <span className="text-sm">⭐</span>
-          <span className="font-black text-base">{points}</span>
+        {/* Stats Row */}
+        <div className="flex items-center gap-2 mt-1">
+          <div className="bg-black/20 backdrop-blur-sm px-2 py-0.5 rounded-md flex items-center gap-1">
+             <span className="text-xs opacity-80">{config.icon}</span>
+             <span className="text-[10px] font-bold">{completedLevels}/{totalLevels}</span>
+          </div>
+          <div className="bg-white/30 backdrop-blur-sm px-2 py-0.5 rounded-md flex items-center gap-1 shadow-sm">
+             <span className="text-[10px]">⭐</span>
+             <span className="text-xs font-black">{points}</span>
+          </div>
         </div>
       </div>
     </div>

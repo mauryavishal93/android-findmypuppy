@@ -15,22 +15,45 @@ interface LeaderboardModalProps {
   currentUsername?: string;
 }
 
+interface ReferralEntry {
+  username: string;
+  rank: number;
+  referredCount: number;
+}
+
 export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
   isOpen,
   onClose,
   activeTheme,
   currentUsername
 }) => {
+  const [tab, setTab] = useState<'points' | 'referrals'>('points');
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [referralLeaderboard, setReferralLeaderboard] = useState<ReferralEntry[]>([]);
   const [currentUser, setCurrentUser] = useState<LeaderboardEntry | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
-      loadLeaderboard();
+      if (tab === 'points') loadLeaderboard();
+      else loadReferralLeaderboard();
     }
-  }, [isOpen, currentUsername]);
+  }, [isOpen, currentUsername, tab]);
+
+  const loadReferralLeaderboard = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await db.getLeaderboardReferrals();
+      if (res.success && res.leaderboard) setReferralLeaderboard(res.leaderboard);
+      else setReferralLeaderboard([]);
+    } catch {
+      setError('Failed to load');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const loadLeaderboard = async () => {
     setLoading(true);
@@ -90,15 +113,50 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
           <i className="fas fa-times text-sm"></i>
         </button>
 
-        {/* Header */}
-        <div className="text-center mb-6">
+        {/* Header + Tabs */}
+        <div className="text-center mb-4">
           <div className="text-4xl mb-2">🏆</div>
           <h2 className="text-2xl font-black mb-1">Leaderboard</h2>
-          <p className={`text-sm ${activeTheme.subText}`}>Top 10 Players</p>
+          <div className="flex justify-center gap-2 mt-3">
+            <button
+              onClick={() => setTab('points')}
+              className={`px-4 py-2 rounded-xl font-bold text-sm transition-all ${tab === 'points' ? activeTheme.button + ' shadow-lg' : activeTheme.iconBg}`}
+            >
+              Points
+            </button>
+            <button
+              onClick={() => setTab('referrals')}
+              className={`px-4 py-2 rounded-xl font-bold text-sm transition-all ${tab === 'referrals' ? activeTheme.button + ' shadow-lg' : activeTheme.iconBg}`}
+            >
+              Top Referrers
+            </button>
+          </div>
         </div>
 
         {/* Leaderboard Content */}
-        {loading ? (
+        {tab === 'referrals' ? (
+          loading ? (
+            <div className="flex justify-center py-12"><div className="text-3xl animate-spin">🎮</div></div>
+          ) : referralLeaderboard.length === 0 ? (
+            <div className="text-center py-12">
+              <p className={`text-sm ${activeTheme.subText}`}>No referrers yet. Share your link to climb!</p>
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {referralLeaderboard.map((entry) => (
+                <div key={entry.rank} className={`flex items-center gap-3 p-3 rounded-xl ${activeTheme.cardBg} border border-white/20`}>
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-sm ${activeTheme.iconBg}`}>
+                    {entry.rank <= 3 ? ['🥇','🥈','🥉'][entry.rank - 1] : `#${entry.rank}`}
+                  </div>
+                  <div className="flex-1 font-bold text-sm truncate">{entry.username}</div>
+                  <div className={`px-3 py-1 rounded-lg font-black text-sm ${activeTheme.accent} bg-white/20`}>
+                    {entry.referredCount} referred
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
+        ) : loading ? (
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
               <div className="text-3xl mb-2 animate-spin">🎮</div>

@@ -30,33 +30,34 @@ const THEMES = [
 ];
 
 // Curated list of high-quality background images for game levels
+// Using local assets from public/asset folder (works for both web and Android)
 const FALLBACK_BG_IMAGES = [
-"https://mauryavishal93.github.io/FindMyPuppy/asset/1.png",
-  "https://mauryavishal93.github.io/FindMyPuppy/asset/2.png",
-  "https://mauryavishal93.github.io/FindMyPuppy/asset/3.png",
-  "https://mauryavishal93.github.io/FindMyPuppy/asset/4.png",
-  "https://mauryavishal93.github.io/FindMyPuppy/asset/5.png",
-  "https://mauryavishal93.github.io/FindMyPuppy/asset/6.png",
-  "https://mauryavishal93.github.io/FindMyPuppy/asset/7.png",
-  "https://mauryavishal93.github.io/FindMyPuppy/asset/8.png",
-  "https://mauryavishal93.github.io/FindMyPuppy/asset/9.png",
-  "https://mauryavishal93.github.io/FindMyPuppy/asset/10.png",
-  "https://mauryavishal93.github.io/FindMyPuppy/asset/11.png",
-  "https://mauryavishal93.github.io/FindMyPuppy/asset/12.png",
-  "https://mauryavishal93.github.io/FindMyPuppy/asset/13.png",
-  "https://mauryavishal93.github.io/FindMyPuppy/asset/14.png",
-  "https://mauryavishal93.github.io/FindMyPuppy/asset/15.png",
-  "https://mauryavishal93.github.io/FindMyPuppy/asset/16.png",
-  "https://mauryavishal93.github.io/FindMyPuppy/asset/17.png",
-  "https://mauryavishal93.github.io/FindMyPuppy/asset/18.png",
-  "https://mauryavishal93.github.io/FindMyPuppy/asset/19.png",
-  "https://mauryavishal93.github.io/FindMyPuppy/asset/20.png",
-  "https://mauryavishal93.github.io/FindMyPuppy/asset/21.png",
-  "https://mauryavishal93.github.io/FindMyPuppy/asset/22.png",
-  "https://mauryavishal93.github.io/FindMyPuppy/asset/23.png",
-  "https://mauryavishal93.github.io/FindMyPuppy/asset/24.png",
-  "https://mauryavishal93.github.io/FindMyPuppy/asset/25.png",
-  "https://mauryavishal93.github.io/FindMyPuppy/asset/26.png"
+"/asset/1.webp",
+"/asset/2.webp",
+"/asset/3.webp",
+"/asset/4.webp",
+"/asset/5.webp",
+"/asset/6.webp",
+"/asset/7.webp",
+"/asset/8.webp",
+"/asset/9.webp",
+"/asset/10.webp",
+"/asset/11.webp",
+"/asset/12.webp",
+"/asset/13.webp",
+"/asset/14.webp",
+"/asset/15.webp",
+"/asset/16.webp",
+"/asset/17.webp",
+"/asset/18.webp",
+"/asset/19.webp",
+"/asset/20.webp",
+"/asset/21.webp",
+"/asset/22.webp",
+"/asset/23.webp",
+"/asset/24.webp",
+"/asset/25.webp",
+"/asset/26.webp"
 ];
 
 
@@ -64,7 +65,7 @@ export const generateLevelTheme = async (levelId: number, _difficulty: Difficult
   return THEMES[(levelId - 1) % THEMES.length];
 };
 
-export const generateLevelImage = async (theme: string, levelId: number, timestamp?: number): Promise<string> => {
+export const generateLevelImage = async (_theme: string, levelId: number, timestamp?: number): Promise<string> => {
   // Use seeded random to select image based on level and timestamp for consistency
   // This ensures the same level gets the same image, but different levels get different images
   const seed = levelId * 1000 + (timestamp ? timestamp % 1000 : 0);

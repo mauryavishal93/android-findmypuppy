@@ -25,7 +25,9 @@ export const useDailyCheckIn = ({ username, onPointsUpdated, onHintsUpdated }: U
           totalCheckIns: response.totalCheckIns || 0,
           hasCheckedInToday: response.hasCheckedInToday || false,
           puppyAge: response.puppyAge || 0,
-          puppySize: response.puppySize || 1.0
+          puppySize: response.puppySize || 1.0,
+          hasUsedFreezeThisWeek: response.hasUsedFreezeThisWeek,
+          streakFreezeAvailable: response.streakFreezeAvailable
         });
       }
     } catch (error) {
@@ -42,6 +44,8 @@ export const useDailyCheckIn = ({ username, onPointsUpdated, onHintsUpdated }: U
     puppyAge?: number;
     puppySize?: number;
     milestone?: '7days' | '30days' | '1year' | null;
+    message?: string;
+    usedStreakFreeze?: boolean;
   }> => {
     if (!username) return { success: false };
 
@@ -66,7 +70,9 @@ export const useDailyCheckIn = ({ username, onPointsUpdated, onHintsUpdated }: U
           pointsEarned: response.pointsEarned,
           puppyAge: response.puppyAge,
           puppySize: response.puppySize,
-          milestone: response.milestone
+          milestone: response.milestone,
+          message: response.message,
+          usedStreakFreeze: response.usedStreakFreeze
         };
       }
       return { success: false };

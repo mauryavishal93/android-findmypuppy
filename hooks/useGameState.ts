@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { Difficulty, Puppy } from '../types';
 import { generateLevelTheme, generateLevelImage } from '../services/geminiService';
 import { PUPPY_IMAGES } from '../constants/puppyImages';
+import type { GameConfig } from '../services/db';
 
 // Seeded Random Number Generator for consistent but varied randomness
 class SeededRandom {
@@ -114,30 +115,30 @@ export const useGameState = () => {
     levelTheme: '',
   });
 
-  const initLevel = useCallback(async (level: number, diff: Difficulty) => {
+  const initLevel = useCallback(async (
+    level: number,
+    diff: Difficulty,
+    gameConfig?: GameConfig | null
+  ): Promise<{ timeLimit: number | null }> => {
     setGameState(prev => ({ ...prev, loading: true, bgImage: null, puppies: [], levelTheme: '' }));
     
-    // Difficulty Progression Logic (Harder every 5 levels)
     const progressionStep = Math.floor((level - 1) / 5);
     
-    let puppyCount = 15;
+    let puppyCount = gameConfig?.puppyCountEasy ?? 15;
     let baseOpacity = 0.5; 
     let minScale = 0.3; 
     let maxScale = 0.5; 
     
     if (diff === Difficulty.EASY) {
-        // Easy: 15 -> 25 puppies, Opacity 0.6 -> 0.4
-        puppyCount = Math.min(25, 15 + Math.floor(progressionStep / 2)); 
+        puppyCount = gameConfig?.puppyCountEasy ?? Math.min(25, 15 + Math.floor(progressionStep / 2)); 
         baseOpacity = Math.max(0.4, 0.6 - (progressionStep * 0.01));
     } else if (diff === Difficulty.MEDIUM) {
-        // Medium: 25 -> 35 puppies, Opacity 0.4 -> 0.25, Scale reduces
-        puppyCount = Math.min(35, 25 + Math.floor(progressionStep / 2));
+        puppyCount = gameConfig?.puppyCountMedium ?? Math.min(35, 25 + Math.floor(progressionStep / 2));
         baseOpacity = Math.max(0.25, 0.4 - (progressionStep * 0.01));
         minScale = Math.max(0.15, 0.25 - (progressionStep * 0.005));
         maxScale = Math.max(0.3, 0.4 - (progressionStep * 0.005));
     } else if (diff === Difficulty.HARD) {
-        // Hard: 40 -> 50 puppies, Opacity 0.3 -> 0.15, Scale reduces
-        puppyCount = Math.min(50, 40 + Math.floor(progressionStep / 2));
+        puppyCount = gameConfig?.puppyCountHard ?? Math.min(50, 40 + Math.floor(progressionStep / 2));
         baseOpacity = Math.max(0.15, 0.3 - (progressionStep * 0.01));
         minScale = Math.max(0.12, 0.2 - (progressionStep * 0.004)); 
         maxScale = Math.max(0.25, 0.35 - (progressionStep * 0.005));
@@ -218,12 +219,14 @@ export const useGameState = () => {
       levelTheme: theme,
     });
 
-    // Calculate time limit based on difficulty
+    // Time limit from game config or fallback
     let calculatedTimeLimit: number | null = null;
-    if (diff === Difficulty.MEDIUM) {
-      calculatedTimeLimit = Math.max(120, 150 - (progressionStep * 2));
-    } else if (diff === Difficulty.HARD) {
-      calculatedTimeLimit = Math.max(150, 180 - (progressionStep * 2));
+    if (gameConfig?.timerEnabled !== false) {
+      if (diff === Difficulty.MEDIUM) {
+        calculatedTimeLimit = gameConfig?.timerMediumSeconds ?? Math.max(120, 150 - (progressionStep * 2));
+      } else if (diff === Difficulty.HARD) {
+        calculatedTimeLimit = gameConfig?.timerHardSeconds ?? Math.max(150, 180 - (progressionStep * 2));
+      }
     }
 
     return { timeLimit: calculatedTimeLimit };

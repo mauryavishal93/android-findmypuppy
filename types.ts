@@ -34,6 +34,8 @@ export interface UserProgress {
   unlockedDifficulties: Difficulty[];
   premiumHints: number;
   selectedTheme?: ThemeType;
+  puppyRunHighScore?: number;
+  unlockedThemes?: ThemeType[]; // Themes unlocked by user (default: first 2)
 }
 
 export interface GameSession {

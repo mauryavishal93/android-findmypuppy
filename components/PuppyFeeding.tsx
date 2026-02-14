@@ -38,12 +38,12 @@ export const PuppyFeeding: React.FC<PuppyFeedingProps> = ({
       if (result.success) {
         if (result.hintsEarned && result.hintsEarned > 0) {
           setHintsEarned(result.hintsEarned);
-          setRewardMessage(`🎉 Amazing! You earned ${result.hintsEarned} hints!`);
+          setRewardMessage((result as { message?: string }).message || `🎉 Amazing! You earned ${result.hintsEarned} hints!`);
         } else if (result.pointsEarned && result.pointsEarned > 0) {
           setPointsEarned(result.pointsEarned);
-          setRewardMessage(`🎉 Amazing! You earned ${result.pointsEarned} points!`);
+          setRewardMessage((result as { message?: string }).message || `🎉 Amazing! You earned ${result.pointsEarned} points!`);
         } else {
-          setRewardMessage('🐕 Puppy fed! Keep the streak going!');
+          setRewardMessage((result as { message?: string }).message || '🐕 Puppy fed! Keep the streak going!');
         }
         setShowReward(true);
         setTimeout(() => {

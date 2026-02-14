@@ -1,7 +1,8 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Difficulty, ThemeType } from '../types';
 import { renderThemeBackground } from '../utils/themeBackground';
+import { THEME_CONFIGS } from '../constants/themeConfig';
 
 interface LevelSelectorProps {
   difficulty: Difficulty;
@@ -10,7 +11,12 @@ interface LevelSelectorProps {
   onBack: () => void;
   isMuted: boolean;
   onToggleMute: () => void;
+  backgroundMusicEnabled: boolean;
+  soundEffectsEnabled: boolean;
+  onToggleBackgroundMusic: () => void;
+  onToggleSoundEffects: () => void;
   currentTheme: ThemeType;
+  levelOfDay?: { levelId: number; difficulty: string } | null;
 }
 
 export const LevelSelector: React.FC<LevelSelectorProps> = ({ 
@@ -20,8 +26,15 @@ export const LevelSelector: React.FC<LevelSelectorProps> = ({
   onBack,
   isMuted,
   onToggleMute,
-  currentTheme
+  backgroundMusicEnabled,
+  soundEffectsEnabled,
+  onToggleBackgroundMusic,
+  onToggleSoundEffects,
+  currentTheme,
+  levelOfDay = null
 }) => {
+  const [isMusicDropdownOpen, setIsMusicDropdownOpen] = useState(false);
+  const activeTheme = THEME_CONFIGS[currentTheme] || THEME_CONFIGS.night;
   // Generate 100 levels
   const levels = Array.from({ length: 100 }, (_, i) => i + 1);
 
@@ -113,50 +126,80 @@ export const LevelSelector: React.FC<LevelSelectorProps> = ({
          {renderThemeBackground(currentTheme)}
       </div>
 
-      <div className={`mobile-header border-b flex justify-between backdrop-blur-md shadow-sm z-10 sticky top-0 ${headerBgClass} transition-all duration-500`}>
-        <button onClick={onBack} className={`w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/10 transition shadow-sm border ${btnBgClass}`}>
-          <i className="fas fa-arrow-left"></i>
-        </button>
-        <h2 className={`text-xl font-black tracking-tight ${headerTextClass}`}>{difficulty} Levels</h2>
+      <div className={`mobile-header border-b border-white/10 flex justify-between backdrop-blur-md shadow-sm z-40 sticky top-0 ${headerBgClass} transition-all duration-500 px-4 py-3`}>
         <button 
-          onClick={onToggleMute}
-          className={`w-10 h-10 rounded-full flex items-center justify-center transition-all shadow-sm border ${btnBgClass}`}
+          onClick={onBack} 
+          className={`w-10 h-10 flex items-center justify-center rounded-full hover:bg-black/5 transition shadow-sm border ${btnBgClass} active:scale-95`}
         >
-          <i className={`fas ${isMuted ? 'fa-volume-mute' : 'fa-volume-up'}`}></i>
+          <i className="fas fa-arrow-left text-sm"></i>
         </button>
+        <div className="flex flex-col items-center justify-center">
+          <h2 className={`text-lg font-black tracking-tight leading-none ${headerTextClass}`}>{difficulty}</h2>
+          <span className={`text-[10px] uppercase tracking-widest font-bold opacity-60 ${headerTextClass}`}>Select Level</span>
+        </div>
+        
+        {/* Music Settings Dropdown */}
+        <div className="relative z-50">
+          <button 
+            onClick={() => setIsMusicDropdownOpen(!isMusicDropdownOpen)} 
+            className={`w-10 h-10 rounded-full flex items-center justify-center transition-all shadow-sm border ${btnBgClass} relative z-50 active:scale-95`}
+          >
+            <i className={`fas ${isMuted ? 'fa-volume-mute' : 'fa-volume-up'} text-sm`}></i>
+          </button>
+          
+          {/* Dropdown Menu - Consistent Style */}
+          {isMusicDropdownOpen && (
+            <>
+              <div 
+                className="fixed inset-0 z-[45]" 
+                onClick={() => setIsMusicDropdownOpen(false)}
+              ></div>
+              
+              <div 
+                className={`absolute right-0 top-12 mt-2 w-48 rounded-2xl shadow-xl border border-white/40 ${activeTheme.cardBg} ${activeTheme.text} z-[50] overflow-hidden origin-top-right animate-fade-in-up`}
+              >
+                <button
+                  onClick={onToggleBackgroundMusic}
+                  className={`w-full px-4 py-3 flex items-center justify-between hover:bg-black/5 transition-colors border-b border-black/5`}
+                >
+                  <span className="text-xs font-bold flex items-center gap-2"><i className="fas fa-music w-4"></i> Music</span>
+                  <div className={`w-8 h-4 rounded-full relative transition-colors ${backgroundMusicEnabled ? 'bg-brand' : 'bg-slate-300'}`}>
+                    <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${backgroundMusicEnabled ? 'translate-x-4' : ''}`}></div>
+                  </div>
+                </button>
+                
+                <button
+                  onClick={onToggleSoundEffects}
+                  className={`w-full px-4 py-3 flex items-center justify-between hover:bg-black/5 transition-colors`}
+                >
+                  <span className="text-xs font-bold flex items-center gap-2"><i className="fas fa-volume-up w-4"></i> SFX</span>
+                  <div className={`w-8 h-4 rounded-full relative transition-colors ${soundEffectsEnabled ? 'bg-brand' : 'bg-slate-300'}`}>
+                    <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${soundEffectsEnabled ? 'translate-x-4' : ''}`}></div>
+                  </div>
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 bg-transparent z-10 relative hide-scrollbar">
-        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-4 pb-20">
+        <div className="grid grid-cols-4 gap-3 sm:gap-4 pb-24 max-w-2xl mx-auto">
           {levels.map((level) => {
             const levelKey = `${difficulty}_${level}`;
             const isCleared = clearedLevels[levelKey];
             const previousKey = `${difficulty}_${level - 1}`;
             const isLocked = level > 1 && !clearedLevels[previousKey];
+            const isLevelOfDay = levelOfDay && levelOfDay.levelId === level && levelOfDay.difficulty === difficulty;
 
             // Card Colors based on theme
-            let cardBaseClass = 'bg-white border-2 border-brand/50 text-brand';
-            let cardClearedClass = 'bg-gradient-to-br from-green-100 to-emerald-100 border-2 border-emerald-300 text-emerald-600';
+            let cardBaseClass = 'bg-white border-2 border-slate-100 text-slate-700 hover:border-brand/30 hover:text-brand';
+            let cardClearedClass = 'bg-emerald-50 border-2 border-emerald-200 text-emerald-600';
             
-            // Simplified fallback for advanced themes to keep switch mostly consistent with Home
+            // Simplified fallback for advanced themes
             if (currentTheme === 'night') {
-                cardBaseClass = 'bg-slate-800 border-2 border-indigo-500/50 text-indigo-300 hover:border-indigo-400';
-                cardClearedClass = 'bg-gradient-to-br from-indigo-900 to-purple-900 border-2 border-yellow-400/50 text-yellow-300';
-            } else if (currentTheme === 'candy') {
-                cardBaseClass = 'bg-white border-2 border-pink-300 text-pink-500 hover:border-pink-400';
-                cardClearedClass = 'bg-gradient-to-br from-pink-100 to-rose-100 border-2 border-rose-300 text-rose-600';
-            } else if (currentTheme === 'forest') {
-                cardBaseClass = 'bg-white border-2 border-emerald-300 text-emerald-600 hover:border-emerald-500';
-                cardClearedClass = 'bg-gradient-to-br from-lime-100 to-green-100 border-2 border-green-400 text-green-700';
-            } else if (currentTheme === 'park') {
-                cardBaseClass = 'bg-white border-2 border-lime-400 text-lime-600 hover:border-lime-500';
-                cardClearedClass = 'bg-gradient-to-br from-emerald-50 to-lime-100 border-2 border-emerald-400 text-emerald-700';
-            } else if (currentTheme === 'bath') {
-                cardBaseClass = 'bg-white border-2 border-cyan-300 text-cyan-500 hover:border-cyan-400';
-                cardClearedClass = 'bg-gradient-to-br from-sky-50 to-blue-100 border-2 border-blue-400 text-blue-700';
-            } else if (currentTheme === 'toys') {
-                cardBaseClass = 'bg-white border-2 border-orange-300 text-orange-500 hover:border-orange-400';
-                cardClearedClass = 'bg-gradient-to-br from-yellow-50 to-red-50 border-2 border-red-400 text-red-600';
+                cardBaseClass = 'bg-slate-800 border-2 border-slate-700 text-slate-400 hover:border-indigo-500 hover:text-indigo-300';
+                cardClearedClass = 'bg-indigo-900/50 border-2 border-indigo-500/50 text-indigo-300';
             }
 
             return (
@@ -165,29 +208,47 @@ export const LevelSelector: React.FC<LevelSelectorProps> = ({
                 disabled={isLocked}
                 onClick={() => onSelectLevel(level)}
                 className={`
-                  aspect-square rounded-2xl flex flex-col items-center justify-center relative shadow-sm transition-all duration-300
+                  aspect-square rounded-2xl flex flex-col items-center justify-center relative shadow-sm transition-all duration-300 overflow-hidden group
                   ${isLocked 
-                    ? `bg-black/5 text-slate-400 cursor-not-allowed border border-transparent ${currentTheme === 'night' ? 'bg-white/5 text-slate-600' : ''}`
+                    ? `bg-black/5 opacity-60 cursor-not-allowed border border-transparent ${currentTheme === 'night' ? 'bg-white/5' : ''}`
                     : isCleared 
-                      ? `${cardClearedClass} hover:scale-105 active:scale-95 shadow-md` 
-                      : `${cardBaseClass} hover:scale-105 active:scale-95 shadow-sm`
+                      ? `${cardClearedClass} shadow-md` 
+                      : `${cardBaseClass} hover:shadow-md hover:-translate-y-0.5`
                   }
                 `}
               >
-                {isLocked ? (
-                  <i className="fas fa-lock text-xl mb-1 opacity-50"></i>
-                ) : isCleared ? (
-                  <div className="relative">
-                    <i className="fas fa-star text-2xl mb-1 drop-shadow-sm"></i>
-                    <i className="fas fa-check absolute -bottom-1 -right-2 text-xs bg-white text-green-600 rounded-full p-0.5 border border-green-200"></i>
-                  </div>
-                ) : (
-                  <span className="text-2xl font-black mb-1">{level}</span>
+                {/* Background Pattern for specific states */}
+                {isLocked && (
+                  <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-black to-transparent"></div>
                 )}
                 
-                {!isLocked && (
-                  <span className="text-[10px] font-bold uppercase tracking-wide">
-                    {isCleared ? 'Done' : 'Play'}
+                {isLocked ? (
+                  <div className="flex flex-col items-center opacity-40">
+                    <i className="fas fa-lock text-lg mb-1"></i>
+                    <span className="text-[10px] font-bold">{level}</span>
+                  </div>
+                ) : isCleared ? (
+                  <div className="relative z-10 flex flex-col items-center">
+                    <div className="relative">
+                      <i className="fas fa-star text-2xl mb-1 drop-shadow-sm animate-bounce-short" style={{ animationDuration: '3s' }}></i>
+                      <div className="absolute -bottom-1 -right-1 bg-white rounded-full p-0.5 shadow-sm">
+                        <i className="fas fa-check text-[8px] text-emerald-600 block"></i>
+                      </div>
+                    </div>
+                    <span className="text-lg font-black leading-none">{level}</span>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center z-10">
+                    <span className="text-2xl font-black mb-0 leading-none group-hover:scale-110 transition-transform">{level}</span>
+                    {isLevelOfDay && (
+                       <span className="text-[8px] font-bold text-amber-500 uppercase tracking-tight mt-1">Bonus</span>
+                    )}
+                  </div>
+                )}
+                
+                {isLevelOfDay && !isLocked && (
+                  <span className="absolute top-0 right-0 w-6 h-6 bg-gradient-to-bl from-amber-400 to-transparent flex items-start justify-end pr-1 pt-0.5">
+                    <span className="text-[8px] font-black text-white">2×</span>
                   </span>
                 )}
               </button>

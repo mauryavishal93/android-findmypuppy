@@ -7,4 +7,6 @@ export interface DailyCheckInData {
   hasCheckedInToday: boolean;
   puppyAge: number; // 0-7 days
   puppySize: number; // 1.0 to ~2.0
+  hasUsedFreezeThisWeek?: boolean;
+  streakFreezeAvailable?: boolean;
 }

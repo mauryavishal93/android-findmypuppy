@@ -9,6 +9,7 @@ interface UserDropdownProps {
   onThemeClick: () => void;
   onPurchaseHistoryClick: () => void;
   onReferClick: () => void;
+  onAchievementsClick?: () => void;
   onLogout: () => void;
 }
 
@@ -20,6 +21,7 @@ export const UserDropdown: React.FC<UserDropdownProps> = ({
   onThemeClick,
   onPurchaseHistoryClick,
   onReferClick,
+  onAchievementsClick,
   onLogout
 }) => {
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -111,6 +113,22 @@ export const UserDropdown: React.FC<UserDropdownProps> = ({
             <i className="fas fa-user-plus text-base"></i>
             <span className="text-sm font-bold">Refer a Friend</span>
           </button>
+
+          {onAchievementsClick && (
+            <>
+              <div className={`h-px ${activeTheme.text} opacity-20 mx-2`}></div>
+              <button
+                onClick={() => {
+                  onAchievementsClick();
+                  onClose();
+                }}
+                className={`w-full px-4 py-3 flex items-center gap-3 hover:bg-white/10 transition-colors ${activeTheme.text}`}
+              >
+                <i className="fas fa-trophy text-base"></i>
+                <span className="text-sm font-bold">Achievements</span>
+              </button>
+            </>
+          )}
           
           {/* Divider */}
           <div className={`h-px ${activeTheme.text} opacity-20 mx-2`}></div>

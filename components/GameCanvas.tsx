@@ -87,40 +87,29 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       
       let loadedCount = 0;
       let mounted = true;
+      let completeTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
       const handleAssetLoad = (isError: boolean = false) => {
         if (!mounted) return;
         
         loadedCount++;
         const currentProgress = Math.round((loadedCount / totalAssets) * 100);
-        // Ensure progress only goes up
         setProgress(prev => Math.max(prev, currentProgress));
 
-        if (isError && loadedCount === 1) {
-            // If the first item (BG) failed
-            setLoadError(true);
-        }
+        if (isError && loadedCount === 1) setLoadError(true);
 
-        // Check if all complete
-        if (loadedCount >= totalAssets) {
-          // Add a tiny delay to ensure the user sees the 100% bar
-          setTimeout(() => {
-             if (mounted) {
-               setLoadingState('fading');
-               
-               // After fade animation (500ms), mark as complete and notify App
-               setTimeout(() => {
-                 if (mounted) {
-                   setLoadingState('complete');
-                   if (onImageLoaded) onImageLoaded();
-                 }
-               }, 500);
-             }
-          }, 200);
+        if (loadedCount >= totalAssets && mounted) {
+          setLoadingState('fading');
+          completeTimeoutId = setTimeout(() => {
+            if (mounted) {
+              setLoadingState('complete');
+              onImageLoaded?.();
+            }
+          }, 300);
         }
       };
 
-      // Load Background
+      // Load background and puppies in parallel (no artificial delay)
       const bgImg = new Image();
       bgImg.src = backgroundImage;
       bgImg.onload = () => handleAssetLoad(false);
@@ -129,15 +118,17 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         handleAssetLoad(true);
       };
 
-      // Load Puppies
       uniquePuppyUrls.forEach(url => {
         const img = new Image();
         img.src = url;
         img.onload = () => handleAssetLoad(false);
-        img.onerror = () => handleAssetLoad(false); // Don't block game if a puppy fails
+        img.onerror = () => handleAssetLoad(false);
       });
 
-      return () => { mounted = false; };
+      return () => {
+        mounted = false;
+        if (completeTimeoutId) clearTimeout(completeTimeoutId);
+      };
     }
   }, [backgroundImage, isLoading, puppies, onImageLoaded]);
 
@@ -420,7 +411,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     <div className="w-full h-full relative">
        {/* CREATIVE LOADING OVERLAY */}
        {loadingState !== 'complete' && (
-          <div className={`absolute inset-0 z-50 flex flex-col items-center justify-center transition-opacity duration-700 ${loadingState === 'fading' ? 'opacity-0' : 'opacity-100'}`}>
+          <div className={`absolute inset-0 z-50 flex flex-col items-center justify-center transition-opacity duration-300 ${loadingState === 'fading' ? 'opacity-0' : 'opacity-100'}`}>
             
             {/* Colorful Animated Background */}
             <div className="absolute inset-0 bg-gradient-to-br from-yellow-100 via-pink-100 to-blue-100 overflow-hidden">
@@ -687,6 +678,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
                   <img 
                     src={puppy.imageUrl} 
                     alt="puppy"
+                    decoding="async"
                     className={`w-full h-full object-contain ${puppy.isFound ? 'animate-bounce' : ''}`}
                     draggable={false}
                     style={!puppy.isFound && !showHints ? { filter: 'none' } : undefined}

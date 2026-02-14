@@ -32,6 +32,9 @@ export const DailyCheckInButton: React.FC<DailyCheckInButtonProps> = ({
     return "Start Your Streak!";
   };
 
+  const streakFreezeAvailable = (checkInData as { streakFreezeAvailable?: boolean })?.streakFreezeAvailable;
+  const hasUsedFreezeThisWeek = (checkInData as { hasUsedFreezeThisWeek?: boolean })?.hasUsedFreezeThisWeek;
+
   return (
     <button
       onClick={onClick}
@@ -71,6 +74,9 @@ export const DailyCheckInButton: React.FC<DailyCheckInButtonProps> = ({
           <div className={`text-[10px] mt-0.5 ${activeTheme.subText} text-center`}>
             Total: {checkInData.totalCheckIns} check-ins
           </div>
+        )}
+        {streakFreezeAvailable && !hasUsedFreezeThisWeek && streak > 0 && (
+          <div className="text-[9px] mt-0.5 text-amber-600 dark:text-amber-400 font-bold text-center">🧊 1 freeze this week</div>
         )}
       </div>
 

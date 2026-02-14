@@ -3,7 +3,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import { GameLogo } from '../components/GameLogo';
 import { Button } from '../components/ui/Button';
 import { db } from '../services/db';
-import { Capacitor, registerPlugin } from '@capacitor/core';
+import {
+  getIsAndroidNativeGoogleAvailable,
+  isPluginNotImplementedError,
+  signInWithGoogleNative,
+} from '../services/nativeGoogleAuth';
 
 // Google OAuth types
 declare global {
@@ -23,11 +27,12 @@ declare global {
 interface LoginViewProps {
   loginName: string;
   setLoginName: (name: string) => void;
-  onLogin: () => void;
+  onLogin: (userData?: { username: string; email?: string; hints?: number; points?: number; levelPassedEasy?: number; levelPassedMedium?: number; levelPassedHard?: number; puppyRunHighScore?: number }) => void;
   onForgotPassword?: () => void;
+  onPlayAsGuest?: () => void;
 }
 
-export const LoginView: React.FC<LoginViewProps> = ({ loginName, setLoginName, onLogin, onForgotPassword }) => {
+export const LoginView: React.FC<LoginViewProps> = ({ loginName, setLoginName, onLogin, onForgotPassword, onPlayAsGuest }) => {
   const [isSignup, setIsSignup] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -36,39 +41,10 @@ export const LoginView: React.FC<LoginViewProps> = ({ loginName, setLoginName, o
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [googleClientIdConfigured, setGoogleClientIdConfigured] = useState(false);
-  const [isNativeGoogleAvailable, setIsNativeGoogleAvailable] = useState(false);
+  const [googleScriptLoading, setGoogleScriptLoading] = useState(true);
+  const [androidUseWebFallback, setAndroidUseWebFallback] = useState(false); // if native plugin fails, show Web button on Android
   const googleSignInButtonRef = useRef<HTMLDivElement>(null);
   const googleSignUpButtonRef = useRef<HTMLDivElement>(null);
-
-  // Native Google auth plugin (Android)
-  interface NativeGoogleAuthPlugin {
-    signIn(options?: { serverClientId?: string; forceAccountPicker?: boolean }): Promise<{ idToken: string; email?: string; name?: string; googleId?: string }>;
-  }
-  const NativeGoogleAuth = registerPlugin<NativeGoogleAuthPlugin>('NativeGoogleAuth');
-  
-  // Immediate check for client ID on mount (for Android)
-  React.useEffect(() => {
-    const checkClientId = () => {
-      const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || 
-                      (window as any).VITE_GOOGLE_CLIENT_ID || 
-                      (window as any).googleClientId;
-      if (clientId) {
-        console.log('[Google OAuth] Client ID found on check:', clientId.substring(0, 20) + '...');
-      } else {
-        console.log('[Google OAuth] Client ID not injected yet, will use fallback or wait for injection');
-      }
-    };
-    checkClientId();
-    // Check again after a short delay
-    setTimeout(checkClientId, 100);
-  }, []);
-
-  // Detect whether we're running inside a native Android container (Capacitor)
-  useEffect(() => {
-    const isNative = Capacitor.isNativePlatform?.() ? Capacitor.isNativePlatform() : Capacitor.getPlatform() !== 'web';
-    const isAndroid = Capacitor.getPlatform() === 'android';
-    setIsNativeGoogleAvailable(Boolean(isNative && isAndroid));
-  }, []);
 
   // Auto-detect referral code from URL
   React.useEffect(() => {
@@ -80,15 +56,55 @@ export const LoginView: React.FC<LoginViewProps> = ({ loginName, setLoginName, o
     }
   }, []);
 
-  // Handle Google OAuth callback
+  // Android native Google Sign-In (Capacitor)
+  const handleAndroidGoogleSignIn = React.useCallback(async () => {
+    console.log('[LoginView] handleAndroidGoogleSignIn called');
+    setIsLoading(true);
+    setError(null);
+    setSuccessMsg(null);
+    try {
+      console.log('[LoginView] Calling signInWithGoogleNative...');
+      const user = await signInWithGoogleNative();
+      console.log('[LoginView] Google sign-in native result:', user);
+      const { idToken } = user;
+      const result = await db.signInWithGoogle(idToken, referralCode.trim() || undefined);
+      if (result.success && result.user?.username) {
+        const loggedInUser = result.user;
+        setSuccessMsg(result.message || 'Success!');
+        setLoginName(loggedInUser.username);
+        onLogin({
+          username: loggedInUser.username,
+          email: loggedInUser.email,
+          hints: loggedInUser.hints,
+          points: loggedInUser.points,
+          levelPassedEasy: loggedInUser.levelPassedEasy,
+          levelPassedMedium: loggedInUser.levelPassedMedium,
+          levelPassedHard: loggedInUser.levelPassedHard,
+          puppyRunHighScore: loggedInUser.puppyRunHighScore,
+        });
+      } else {
+        setError(result.message || 'Authentication failed');
+      }
+    } catch (e: unknown) {
+      console.error('[LoginView] Google sign-in error:', JSON.stringify(e));
+      if (e && typeof e === 'object' && 'code' in e) {
+        console.error('[LoginView] native status code:', (e as { code: unknown }).code);
+      }
+      const message = e instanceof Error ? e.message : 'Google sign-in failed. Please try again.';
+      setError(message);
+      if (isPluginNotImplementedError(e)) setAndroidUseWebFallback(true); // show Web Google button instead
+    } finally {
+      setIsLoading(false);
+    }
+  }, [referralCode, onLogin, setLoginName]);
+
+  // Handle Google OAuth callback (Web)
   const handleGoogleSignIn = React.useCallback(async (response: any) => {
     setIsLoading(true);
     setError(null);
     setSuccessMsg(null);
 
     try {
-      console.log('[Google OAuth] Callback received:', response);
-      
       // Handle error notifications from Google OAuth
       if (response && response.error) {
         const errorObj = response.error;
@@ -100,9 +116,11 @@ export const LoginView: React.FC<LoginViewProps> = ({ loginName, setLoginName, o
           errorMessage = errorObj.message;
         } else if (errorObj.type) {
           errorMessage = `Google sign-in error: ${errorObj.type}`;
+        } else if (typeof errorObj === 'object') {
+          errorMessage = errorObj.toString?.() || JSON.stringify(errorObj);
         }
         
-        console.error("Google OAuth Error Details:", errorObj);
+        console.error("Google OAuth Error:", errorObj);
         setError(errorMessage);
         setIsLoading(false);
         return;
@@ -111,7 +129,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ loginName, setLoginName, o
       // Validate response structure
       if (!response || !response.credential) {
         const errorMsg = "Invalid Google response. Please try again.";
-        console.error("[Google OAuth] No credential in response:", response);
         setError(errorMsg);
         setIsLoading(false);
         return;
@@ -120,237 +137,157 @@ export const LoginView: React.FC<LoginViewProps> = ({ loginName, setLoginName, o
       const result = await db.signInWithGoogle(response.credential, referralCode.trim() || undefined);
       
       if (result.success && result.user?.username) {
-        const username = result.user.username;
-        setSuccessMsg(result.message || "Welcome back!");
-        setLoginName(username);
+        const user = result.user;
+        setSuccessMsg(result.message || "Success!");
+        setLoginName(user.username);
+        // Pass user data (points, hints, levels) for immediate load
         setTimeout(() => {
-          onLogin();
-        }, 800);
+          onLogin({
+            username: user.username,
+            email: user.email,
+            hints: user.hints,
+            points: user.points,
+            levelPassedEasy: user.levelPassedEasy,
+            levelPassedMedium: user.levelPassedMedium,
+            levelPassedHard: user.levelPassedHard,
+            puppyRunHighScore: user.puppyRunHighScore
+          });
+        }, 500);
       } else {
-        setError(result.message || "Google sign in failed. Please try again.");
+        // Extract error message properly
+        const errorMsg = result.message || "Google sign in failed";
+        setError(typeof errorMsg === 'string' ? errorMsg : "Google sign-in failed. Please try again.");
         setIsLoading(false);
       }
     } catch (e: any) {
-      console.error("Google Sign In catch error:", e);
-      setError("Connection error during Google Sign-In. Please check your internet.");
+      // Properly extract error message from error object
+      let errorMessage = "An unexpected error occurred";
+      if (e) {
+        if (typeof e === 'string') {
+          errorMessage = e;
+        } else if (e.message) {
+          errorMessage = e.message;
+        } else if (e.error) {
+          errorMessage = typeof e.error === 'string' ? e.error : (e.error.message || "Google sign-in error");
+        } else if (typeof e === 'object') {
+          // Try to extract meaningful error message
+          errorMessage = e.toString?.() || JSON.stringify(e);
+        }
+      }
+      console.error("Google Sign In Error:", e);
+      setError(errorMessage);
       setIsLoading(false);
     }
   }, [referralCode, onLogin, setLoginName]);
 
-  // Native Google Sign-In (Android) — fallback when GIS web button doesn't load in WebView
-  const handleNativeGoogleSignIn = React.useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    setSuccessMsg(null);
-
-    try {
-      // Must be the Web Client ID to request idToken on Android.
-      const FALLBACK_WEB_CLIENT_ID = '977430971765-k7csafri1sidju96oikgr74ab0l9j4kn.apps.googleusercontent.com';
-      const serverClientId = (window as any).VITE_GOOGLE_CLIENT_ID || (window as any).googleClientId || import.meta.env.VITE_GOOGLE_CLIENT_ID || FALLBACK_WEB_CLIENT_ID;
-
-      // forceAccountPicker=true ensures the user can select a Google account every time.
-      const res = await NativeGoogleAuth.signIn({ serverClientId, forceAccountPicker: true });
-      if (!res?.idToken) {
-        throw new Error('Native Google Sign-In did not return an idToken');
-      }
-
-      const result = await db.signInWithGoogle(res.idToken, referralCode.trim() || undefined);
-      if (result.success && result.user?.username) {
-        const username = result.user.username;
-        setSuccessMsg(result.message || 'Welcome!');
-        setLoginName(username);
-        setTimeout(() => onLogin(), 800);
-        return;
-      }
-
-      setError(result.message || 'Google sign in failed. Please try again.');
-      setIsLoading(false);
-    } catch (e: any) {
-      console.error('[Native Google OAuth] Error:', e);
-      const msg =
-        e?.message ||
-        e?.toString?.() ||
-        (typeof e === 'string' ? e : '') ||
-        'Native Google Sign-In failed.';
-      setError(`Google Sign-In failed on Android. ${msg}`);
-      setIsLoading(false);
-    }
-  }, [NativeGoogleAuth, referralCode, onLogin, setLoginName]);
-
-  // Initialize Google OAuth
+  // Initialize Google OAuth — wait for GSI script, with programmatic load fallback for Render/production
   useEffect(() => {
-    // On Android (Capacitor), use the native Google Sign-In button.
-    // The GIS web button can be unreliable inside WebView and also clutters the UI.
-    if (isNativeGoogleAvailable) {
-      setGoogleClientIdConfigured(false);
-      return;
-    }
+    const GOOGLE_CLIENT_ID =
+      import.meta.env.VITE_GOOGLE_CLIENT_ID ||
+      '896459680164-aa61o2u96qrscu10ia9g0l40agca0q6i.apps.googleusercontent.com';
 
-    let isInitialized = false;
-    
     const initializeGoogleSignIn = () => {
-      // Prevent multiple initializations
-      if (isInitialized) {
-        return;
-      }
-
-      if (!window.google?.accounts?.id) {
-        console.log('[Google OAuth] Google Identity Services not loaded yet');
-        return;
-      }
-
-      // Google Client ID - Check multiple sources
-      // For Android, the client ID is injected via window.VITE_GOOGLE_CLIENT_ID
-      // Fallback to the known Web Client ID if injection fails
-      const FALLBACK_CLIENT_ID = '977430971765-k7csafri1sidju96oikgr74ab0l9j4kn.apps.googleusercontent.com';
-      
-      const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || 
-                                (window as any).VITE_GOOGLE_CLIENT_ID || 
-                                (window as any).googleClientId ||
-                                FALLBACK_CLIENT_ID;
-      
-      console.log('[Google OAuth] Client ID check:', {
-        fromEnv: import.meta.env.VITE_GOOGLE_CLIENT_ID ? 'found' : 'not set',
-        fromWindow: (window as any).VITE_GOOGLE_CLIENT_ID ? 'found' : 'not set',
-        fromGoogleClientId: (window as any).googleClientId ? 'found' : 'not set',
-        usingFallback: !((window as any).VITE_GOOGLE_CLIENT_ID || (window as any).googleClientId || import.meta.env.VITE_GOOGLE_CLIENT_ID),
-        final: GOOGLE_CLIENT_ID.substring(0, 20) + '...'
-      });
-      
+      if (!window.google?.accounts?.id) return;
       if (!GOOGLE_CLIENT_ID) {
-        console.warn('[Google OAuth] Client ID not found, will keep checking...');
         setGoogleClientIdConfigured(false);
+        setGoogleScriptLoading(false);
         return;
       }
 
-      console.log('[Google OAuth] Initializing with Client ID:', GOOGLE_CLIENT_ID.substring(0, 20) + '...');
       setGoogleClientIdConfigured(true);
-      isInitialized = true;
+      setGoogleScriptLoading(false);
 
-      try {
-        window.google.accounts.id.initialize({
-          client_id: GOOGLE_CLIENT_ID,
-          callback: handleGoogleSignIn,
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: handleGoogleSignIn,
+      });
+
+      // Clear and render the appropriate button based on current isSignup state
+      if (googleSignInButtonRef.current) googleSignInButtonRef.current.innerHTML = '';
+      if (googleSignUpButtonRef.current) googleSignUpButtonRef.current.innerHTML = '';
+
+      if (!isSignup && googleSignInButtonRef.current) {
+        window.google.accounts.id.renderButton(googleSignInButtonRef.current, {
+          type: 'standard',
+          theme: 'outline',
+          size: 'large',
+          text: 'signin_with',
+          width: '100%',
         });
-
-        // Clear existing buttons
-        if (googleSignInButtonRef.current) {
-          googleSignInButtonRef.current.innerHTML = '';
-        }
-        if (googleSignUpButtonRef.current) {
-          googleSignUpButtonRef.current.innerHTML = '';
-        }
-
-        // Render appropriate button based on mode
-        if (!isSignup && googleSignInButtonRef.current) {
-          window.google.accounts.id.renderButton(googleSignInButtonRef.current, {
-            type: 'standard',
-            theme: 'outline',
-            size: 'large',
-            text: 'signin_with',
-            width: '100%',
-          });
-          console.log('[Google OAuth] Sign-In button rendered');
-        } else if (isSignup && googleSignUpButtonRef.current) {
-          window.google.accounts.id.renderButton(googleSignUpButtonRef.current, {
-            type: 'standard',
-            theme: 'outline',
-            size: 'large',
-            text: 'signup_with',
-            width: '100%',
-          });
-          console.log('[Google OAuth] Sign-Up button rendered');
-        }
-      } catch (error) {
-        console.error('[Google OAuth] Error initializing:', error);
-        setGoogleClientIdConfigured(false);
-        isInitialized = false;
+      } else if (isSignup && googleSignUpButtonRef.current) {
+        window.google.accounts.id.renderButton(googleSignUpButtonRef.current, {
+          type: 'standard',
+          theme: 'outline',
+          size: 'large',
+          text: 'signup_with',
+          width: '100%',
+        });
       }
     };
 
-    // Listen for Android client ID injection event
-    const handleClientIdReady = (event: any) => {
-      console.log('[Google OAuth] Client ID ready event received:', event.detail);
-      isInitialized = false; // Reset to allow re-initialization
-      setTimeout(() => {
-        initializeGoogleSignIn();
-      }, 300);
-    };
-    
-    window.addEventListener('googleClientIdReady', handleClientIdReady as EventListener);
-
-    // Polling mechanism to check for client ID periodically (for Android)
-    let pollInterval: NodeJS.Timeout | null = null;
-    let checkCount = 0;
-    const maxChecks = 50; // Check for 5 seconds (50 * 100ms)
-    
-    const pollForClientId = () => {
-      checkCount++;
-      
-      // Check if client ID is now available
-      const hasClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || 
-                          (window as any).VITE_GOOGLE_CLIENT_ID || 
-                          (window as any).googleClientId;
-      
-      if (hasClientId && window.google?.accounts?.id && !isInitialized) {
-        console.log('[Google OAuth] Client ID found via polling, initializing...');
-        initializeGoogleSignIn();
-        if (pollInterval) {
-          clearInterval(pollInterval);
-          pollInterval = null;
-        }
-      } else if (checkCount >= maxChecks) {
-        console.warn('[Google OAuth] Polling timeout, stopping checks');
-        if (pollInterval) {
-          clearInterval(pollInterval);
-          pollInterval = null;
-        }
-      }
-    };
-
-    // Start polling if client ID is not immediately available
-    const clientIdAvailable = import.meta.env.VITE_GOOGLE_CLIENT_ID || 
-                               (window as any).VITE_GOOGLE_CLIENT_ID || 
-                               (window as any).googleClientId;
-    
-    if (!clientIdAvailable) {
-      console.log('[Google OAuth] Client ID not immediately available, starting polling...');
-      pollInterval = setInterval(pollForClientId, 100);
-    }
-
-    // Wait for Google script to load
+    // Check if script is already loaded (optimistic check - most common case)
     if (window.google?.accounts?.id) {
-      // If Google is already loaded, try to initialize
-      setTimeout(() => {
-        initializeGoogleSignIn();
-      }, 200);
-    } else {
-      const checkGoogle = setInterval(() => {
-        if (window.google?.accounts?.id) {
-          clearInterval(checkGoogle);
-          // Give it a moment, then initialize
-          setTimeout(() => {
-            initializeGoogleSignIn();
-          }, 300);
-        }
-      }, 100);
-
-      return () => {
-        clearInterval(checkGoogle);
-        if (pollInterval) {
-          clearInterval(pollInterval);
-        }
-        window.removeEventListener('googleClientIdReady', handleClientIdReady as EventListener);
-      };
+      initializeGoogleSignIn();
+      return () => {}; // Return empty cleanup
     }
 
-    return () => {
-      if (pollInterval) {
-        clearInterval(pollInterval);
+    // If script not ready, poll for it
+
+    // Poll for script (from index.html async load) - check frequently for fast response
+    let attempts = 0;
+    const maxAttempts = 50; // ~5s max wait
+    const checkGoogle = setInterval(() => {
+      attempts++;
+      if (window.google?.accounts?.id) {
+        clearInterval(checkGoogle);
+        initializeGoogleSignIn();
+        return;
       }
-      window.removeEventListener('googleClientIdReady', handleClientIdReady as EventListener);
-    };
-  }, [isSignup, handleGoogleSignIn, isNativeGoogleAvailable]);
+      if (attempts >= maxAttempts) {
+        clearInterval(checkGoogle);
+        // Fallback: inject script programmatically (helps when index.html script is blocked or delayed on Render)
+        if (!document.querySelector('script[src*="accounts.google.com/gsi/client"]')) {
+          const script = document.createElement('script');
+          script.src = 'https://accounts.google.com/gsi/client';
+          script.async = true;
+          script.defer = true;
+          script.onload = () => {
+            const retry = setInterval(() => {
+              if (window.google?.accounts?.id) {
+                clearInterval(retry);
+                initializeGoogleSignIn();
+              }
+            }, 50); // Check more frequently
+            setTimeout(() => {
+              clearInterval(retry);
+              if (!window.google?.accounts?.id) {
+                setGoogleScriptLoading(false);
+                setGoogleClientIdConfigured(false);
+              }
+            }, 3000);
+          };
+          script.onerror = () => {
+            setGoogleScriptLoading(false);
+            setGoogleClientIdConfigured(false);
+          };
+          document.head.appendChild(script);
+        } else {
+          // Script tag exists but not loaded yet - wait a bit more
+          const finalCheck = setTimeout(() => {
+            if (window.google?.accounts?.id) {
+              initializeGoogleSignIn();
+            } else {
+              setGoogleScriptLoading(false);
+              setGoogleClientIdConfigured(false);
+            }
+          }, 2000);
+          return () => clearTimeout(finalCheck);
+        }
+      }
+    }, 50); // Check every 50ms for faster response
+
+    return () => clearInterval(checkGoogle);
+  }, [isSignup, handleGoogleSignIn]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -376,31 +313,28 @@ export const LoginView: React.FC<LoginViewProps> = ({ loginName, setLoginName, o
       let response;
       if (isSignup) {
         response = await db.signup(loginName, email, password, referralCode.trim() || undefined);
-        
-        // If signup fails because email exists, automatically try to login
-        if (!response.success && response.message && (
-          response.message.includes("email already exists") || 
-          response.message.includes("Email already exists")
-        )) {
-          // Automatically attempt login with the provided email and password
-          response = await db.login(loginName, password, email);
-          
-          // If login succeeds, show a friendly message
-          if (response.success) {
-            setSuccessMsg("Welcome back! You've been logged in automatically.");
-          }
-        }
       } else {
-        // For login, try email if loginName looks like an email
-        const isEmailFormat = loginName.includes('@');
-        response = await db.login(loginName, password, isEmailFormat ? loginName : undefined);
+        response = await db.login(loginName, password);
       }
 
       if (response.success) {
         setSuccessMsg(response.message || "Success!");
-        // Brief delay to show success message before transitioning
+        const user = response.user;
         setTimeout(() => {
-          onLogin();
+          if (user) {
+            onLogin({
+              username: user.username,
+              email: user.email,
+              hints: user.hints,
+              points: user.points,
+              levelPassedEasy: user.levelPassedEasy,
+              levelPassedMedium: user.levelPassedMedium,
+              levelPassedHard: user.levelPassedHard,
+              puppyRunHighScore: user.puppyRunHighScore
+            });
+          } else {
+            onLogin();
+          }
         }, 1000);
       } else {
         setError(response.message || "Authentication failed");
@@ -413,209 +347,226 @@ export const LoginView: React.FC<LoginViewProps> = ({ loginName, setLoginName, o
   };
 
   return (
-    <div className="mobile-main-content flex flex-col items-center justify-center p-6 bg-gradient-to-br from-pink-100 via-white to-blue-100 relative overflow-hidden transition-colors duration-500">
-      {/* Creative Background Elements */}
-      <div className="absolute inset-0 pointer-events-none">
-         <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[30%] bg-pink-200/40 blur-[80px] rounded-full animate-pulse"></div>
-         <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[40%] bg-blue-200/40 blur-[80px] rounded-full animate-pulse delay-700"></div>
-         
-         <i className="fas fa-paw absolute top-20 left-10 text-6xl text-brand/10 -rotate-12 animate-bounce-short"></i>
-         <i className="fas fa-paw absolute bottom-32 right-12 text-7xl text-blue-400/10 rotate-12"></i>
-         <i className="fas fa-bone absolute top-1/2 right-8 text-5xl text-yellow-400/20 rotate-45"></i>
-         <i className="fas fa-cloud absolute top-16 right-1/4 text-8xl text-white/60"></i>
+    <div className="mobile-main-content flex flex-col items-center justify-center p-6 bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 relative overflow-hidden transition-colors duration-500">
+      {/* Soft Background Globs */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+         <div className="absolute top-[-20%] right-[-20%] w-[80%] h-[50%] bg-purple-200/30 blur-[100px] rounded-full mix-blend-multiply animate-pulse"></div>
+         <div className="absolute bottom-[-20%] left-[-20%] w-[80%] h-[50%] bg-pink-200/30 blur-[100px] rounded-full mix-blend-multiply animate-pulse delay-1000"></div>
       </div>
 
-      <div className="bg-white/80 backdrop-blur-xl p-8 rounded-[2.5rem] shadow-2xl w-full max-w-sm z-10 text-center border-4 border-white/50 relative overflow-y-auto overflow-x-hidden max-h-[90vh] hide-scrollbar">
-        <div className="mx-auto mb-4 flex justify-center relative">
-          <div className="absolute inset-0 bg-brand-light/30 blur-2xl rounded-full scale-150"></div>
-          <GameLogo className="w-24 h-24 relative z-10 drop-shadow-lg" />
-        </div>
-        
-        <h1 className="text-3xl font-black text-slate-800 mb-1 tracking-tight">FindMyPuppy</h1>
-        <p className="text-slate-500 mb-6 font-medium text-sm">Join the ultimate hide & seek adventure!</p>
-
-        {/* Auth Tabs */}
-        <div className="flex p-1 bg-slate-100/80 rounded-xl mb-6 relative">
-          <div 
-            className={`absolute top-1 bottom-1 w-[calc(50%-4px)] bg-white rounded-lg shadow-sm transition-all duration-300 ease-out ${isSignup ? 'left-[calc(50%+2px)]' : 'left-1'}`}
-          ></div>
-          <button 
+      <div className="bg-white/90 backdrop-blur-xl p-6 rounded-[2rem] shadow-xl w-full max-w-sm z-10 text-center border border-white/60 relative overflow-hidden transition-all duration-300 max-h-[90vh] flex flex-col">
+        {/* Play as Guest / Back - when coming from HOME */}
+        {onPlayAsGuest && (
+          <button
             type="button"
-            onClick={() => { setIsSignup(false); setError(null); }}
-            className={`flex-1 py-2 text-sm font-bold relative z-10 transition-colors ${!isSignup ? 'text-brand-dark' : 'text-slate-400 hover:text-slate-600'}`}
+            onClick={onPlayAsGuest}
+            className="absolute top-4 left-4 flex items-center gap-2 text-slate-400 hover:text-slate-600 font-bold text-xs transition-colors z-20 group"
           >
-            Login
-          </button>
-          <button 
-            type="button"
-            onClick={() => { setIsSignup(true); setError(null); }}
-            className={`flex-1 py-2 text-sm font-bold relative z-10 transition-colors ${isSignup ? 'text-brand-dark' : 'text-slate-400 hover:text-slate-600'}`}
-          >
-            Sign Up
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div className="space-y-3">
-            <div className="relative">
-              <i className="fas fa-user absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
-              <input 
-                type="text" 
-                placeholder="Username"
-                value={loginName}
-                onChange={(e) => setLoginName(e.target.value)}
-                className="w-full pl-10 pr-4 py-3.5 rounded-2xl border-2 border-slate-200 focus:border-brand focus:ring-4 focus:ring-brand/10 focus:outline-none transition-all text-base font-bold text-slate-700 bg-white/50"
-                maxLength={12}
-                disabled={isLoading}
-              />
+            <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center group-hover:bg-slate-200 transition-colors">
+              <i className="fas fa-arrow-left"></i>
             </div>
-            
-            {isSignup && (
-              <div className="relative animate-fade-in">
-                <i className="fas fa-envelope absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
+            <span>Guest</span>
+          </button>
+        )}
+        
+        <div className="mx-auto mb-4 flex flex-col items-center shrink-0">
+          <div className="relative mb-2 transform hover:scale-105 transition-transform duration-300">
+            <div className="absolute inset-0 bg-brand/20 blur-xl rounded-full scale-110"></div>
+            <GameLogo className="w-16 h-16 relative z-10 drop-shadow-md" />
+          </div>
+          <h1 className="text-xl font-black text-slate-800 tracking-tight">FindMyPuppy</h1>
+          <p className="text-slate-500 font-semibold text-[10px] mt-0.5">The cutest hide & seek game!</p>
+        </div>
+
+        {/* Scrollable Content Area */}
+        <div className="flex-1 overflow-y-auto overflow-x-hidden hide-scrollbar -mx-2 px-2">
+          {/* Auth Tabs */}
+          <div className="flex p-1 bg-slate-100/80 rounded-xl mb-4 relative shrink-0">
+            <div 
+              className={`absolute top-1 bottom-1 w-[calc(50%-4px)] bg-white rounded-lg shadow-sm transition-all duration-300 cubic-bezier(0.4, 0, 0.2, 1) ${isSignup ? 'left-[calc(50%+2px)]' : 'left-1'}`}
+            ></div>
+            <button 
+              type="button"
+              onClick={() => { setIsSignup(false); setError(null); }}
+              className={`flex-1 py-2 text-xs font-extrabold relative z-10 transition-colors ${!isSignup ? 'text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}
+            >
+              Login
+            </button>
+            <button 
+              type="button"
+              onClick={() => { setIsSignup(true); setError(null); }}
+              className={`flex-1 py-2 text-xs font-extrabold relative z-10 transition-colors ${isSignup ? 'text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}
+            >
+              Sign Up
+            </button>
+          </div>
+
+          <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+            <div className="space-y-3">
+              <div className="relative group">
+                <div className="absolute left-4 top-1/2 -translate-y-1/2 w-8 flex justify-center text-slate-400 group-focus-within:text-brand transition-colors">
+                  <i className="fas fa-user text-xs"></i>
+                </div>
                 <input 
-                  type="email" 
-                  placeholder="Email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3.5 rounded-2xl border-2 border-slate-200 focus:border-brand focus:ring-4 focus:ring-brand/10 focus:outline-none transition-all text-base font-bold text-slate-700 bg-white/50"
+                  type="text" 
+                  placeholder="Username"
+                  value={loginName}
+                  onChange={(e) => setLoginName(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 rounded-xl bg-slate-50 border-2 border-transparent focus:bg-white focus:border-brand/30 focus:ring-4 focus:ring-brand/10 focus:outline-none transition-all text-sm font-bold text-slate-700 placeholder:text-slate-400 placeholder:font-semibold"
+                  maxLength={12}
                   disabled={isLoading}
                 />
               </div>
-            )}
-
-              <div className="relative">
-                <i className="fas fa-lock absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
-                <input 
-                  type="password" 
-                  placeholder="Password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3.5 rounded-2xl border-2 border-slate-200 focus:border-brand focus:ring-4 focus:ring-brand/10 focus:outline-none transition-all text-base font-bold text-slate-700 bg-white/50"
-                  disabled={isLoading}
-                />
-              </div>
-
+              
               {isSignup && (
-                <div className="relative animate-fade-in">
-                  <i className="fas fa-ticket-alt absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                <div className="relative group animate-fade-in">
+                  <div className="absolute left-4 top-1/2 -translate-y-1/2 w-8 flex justify-center text-slate-400 group-focus-within:text-brand transition-colors">
+                    <i className="fas fa-envelope text-xs"></i>
+                  </div>
                   <input 
-                    type="text" 
-                    placeholder="Referral Code (Optional)"
-                    value={referralCode}
-                    onChange={(e) => setReferralCode(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3.5 rounded-2xl border-2 border-slate-200 focus:border-brand focus:ring-4 focus:ring-brand/10 focus:outline-none transition-all text-base font-bold text-slate-700 bg-white/50"
+                    type="email" 
+                    placeholder="Email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full pl-10 pr-4 py-3 rounded-xl bg-slate-50 border-2 border-transparent focus:bg-white focus:border-brand/30 focus:ring-4 focus:ring-brand/10 focus:outline-none transition-all text-sm font-bold text-slate-700 placeholder:text-slate-400 placeholder:font-semibold"
                     disabled={isLoading}
                   />
                 </div>
               )}
-            </div>
 
-          {error && (
-            <div className="text-red-500 text-xs font-bold bg-red-50 py-2 px-3 rounded-lg border border-red-100 flex items-center gap-2 animate-pulse">
-              <i className="fas fa-exclamation-circle"></i> {error}
-            </div>
-          )}
+                <div className="relative group">
+                  <div className="absolute left-4 top-1/2 -translate-y-1/2 w-8 flex justify-center text-slate-400 group-focus-within:text-brand transition-colors">
+                    <i className="fas fa-lock text-xs"></i>
+                  </div>
+                  <input 
+                    type="password" 
+                    placeholder="Password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full pl-10 pr-4 py-3 rounded-xl bg-slate-50 border-2 border-transparent focus:bg-white focus:border-brand/30 focus:ring-4 focus:ring-brand/10 focus:outline-none transition-all text-sm font-bold text-slate-700 placeholder:text-slate-400 placeholder:font-semibold"
+                    disabled={isLoading}
+                  />
+                </div>
 
-          {successMsg && (
-            <div className="text-green-600 text-xs font-bold bg-green-50 py-2 px-3 rounded-lg border border-green-100 flex items-center gap-2">
-              <i className="fas fa-check-circle"></i> {successMsg}
-            </div>
-          )}
+                {isSignup && (
+                  <div className="relative group animate-fade-in">
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2 w-8 flex justify-center text-slate-400 group-focus-within:text-brand transition-colors">
+                      <i className="fas fa-ticket-alt text-xs"></i>
+                    </div>
+                    <input 
+                      type="text" 
+                      placeholder="Referral Code (Optional)"
+                      value={referralCode}
+                      onChange={(e) => setReferralCode(e.target.value)}
+                      className="w-full pl-10 pr-4 py-3 rounded-xl bg-slate-50 border-2 border-transparent focus:bg-white focus:border-brand/30 focus:ring-4 focus:ring-brand/10 focus:outline-none transition-all text-sm font-bold text-slate-700 placeholder:text-slate-400 placeholder:font-semibold"
+                      disabled={isLoading}
+                    />
+                  </div>
+                )}
+              </div>
 
-          <Button 
-            type="submit"
-            disabled={!loginName.trim() || !password.trim() || isLoading} 
-            className="w-full bg-gradient-to-r from-brand to-brand-dark text-white shadow-brand/30 hover:shadow-brand/50 hover:scale-[1.02] mt-2 h-12 flex items-center justify-center"
-          >
-            {isLoading ? (
-              <i className="fas fa-circle-notch animate-spin"></i>
-            ) : (
-              <>
-                {isSignup ? 'Create Account' : 'Start Playing'}
-                <i className="fas fa-arrow-right ml-2 text-sm opacity-80"></i>
-              </>
+            {error && (
+              <div className="text-red-500 text-[10px] font-bold bg-red-50 py-2 px-3 rounded-lg border border-red-100 flex items-start gap-2 animate-shake">
+                <i className="fas fa-exclamation-circle mt-0.5 shrink-0"></i>
+                <span className="leading-snug">{error}</span>
+              </div>
             )}
-          </Button>
-        </form>
 
-        {/* Forgot Password Link - Only show on Login tab */}
-        {!isSignup && onForgotPassword && (
-          <div className="mt-3 text-center">
-            <button
-              type="button"
-              onClick={onForgotPassword}
-              className="text-xs text-brand-dark hover:text-brand font-bold transition-colors"
+            {successMsg && (
+              <div className="text-green-600 text-[10px] font-bold bg-green-50 py-2 px-3 rounded-lg border border-green-100 flex items-start gap-2 animate-pulse-fast">
+                <i className="fas fa-check-circle mt-0.5 shrink-0"></i>
+                <span className="leading-snug">{successMsg}</span>
+              </div>
+            )}
+
+            <Button 
+              type="submit"
+              disabled={!loginName.trim() || !password.trim() || isLoading} 
+              className="w-full bg-slate-900 text-white shadow-lg shadow-slate-900/20 hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] mt-1 h-10 rounded-xl flex items-center justify-center font-black tracking-wide transition-all text-sm"
             >
-              <i className="fas fa-key mr-1"></i>
-              Forgot Password?
-            </button>
+              {isLoading ? (
+                <i className="fas fa-circle-notch animate-spin text-sm"></i>
+              ) : (
+                <>
+                  {isSignup ? 'Create Account' : 'Start Playing'}
+                  <i className="fas fa-arrow-right ml-2 opacity-60 text-xs"></i>
+                </>
+              )}
+            </Button>
+          </form>
+
+          {/* Forgot Password Link - Only show on Login tab */}
+          {!isSignup && onForgotPassword && (
+            <div className="mt-3 text-center">
+              <button
+                type="button"
+                onClick={onForgotPassword}
+                className="text-[10px] text-slate-400 hover:text-brand-dark font-bold transition-colors py-1 px-2"
+              >
+                Forgot Password?
+              </button>
+            </div>
+          )}
+
+          {/* Divider */}
+          <div className="flex items-center my-4 gap-3">
+            <div className="flex-1 border-t border-slate-200"></div>
+            <span className="text-[9px] uppercase tracking-widest text-slate-400 font-bold">Or continue with</span>
+            <div className="flex-1 border-t border-slate-200"></div>
           </div>
-        )}
 
-        {/* Divider */}
-        <div className="flex items-center my-4">
-          <div className="flex-1 border-t border-slate-300"></div>
-          <span className="px-4 text-xs text-slate-500 font-medium">OR</span>
-          <div className="flex-1 border-t border-slate-300"></div>
-        </div>
-
-        {/* Native Google Sign-In for Android (Capacitor) */}
-        {isNativeGoogleAvailable && (
-          <button
-            type="button"
-            onClick={handleNativeGoogleSignIn}
-            disabled={isLoading}
-            className="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-2xl border-2 border-slate-200 bg-white hover:bg-slate-50 active:bg-slate-100 transition-colors shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {/* Standard full-color Google "G" icon */}
-            <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
-              <path fill="#EA4335" d="M24 9.5c3.54 0 6.34 1.53 8.17 2.81l5.96-5.96C34.44 3.42 29.7 1.5 24 1.5 14.64 1.5 6.53 6.88 2.56 14.72l6.94 5.38C11.27 13.74 17.15 9.5 24 9.5z"/>
-              <path fill="#4285F4" d="M46.5 24.5c0-1.63-.14-3.2-.41-4.72H24v9.02h12.66c-.55 2.95-2.22 5.45-4.75 7.14l7.27 5.64C43.4 37.67 46.5 31.6 46.5 24.5z"/>
-              <path fill="#FBBC05" d="M9.5 28.1c-.5-1.5-.78-3.1-.78-4.6s.28-3.1.78-4.6l-6.94-5.38C1.59 16.52 1 20.2 1 23.5c0 3.3.59 6.98 1.56 9.98l6.94-5.38z"/>
-              <path fill="#34A853" d="M24 46.5c5.7 0 10.44-1.88 13.91-5.12l-7.27-5.64c-2.02 1.36-4.61 2.16-6.64 2.16-6.85 0-12.73-4.24-14.5-10.6l-6.94 5.38C6.53 41.12 14.64 46.5 24 46.5z"/>
-            </svg>
-            <span className="font-extrabold text-slate-700 text-sm">
-              {isLoading ? 'Opening Google…' : (isSignup ? 'Sign up with Google' : 'Sign in with Google')}
-            </span>
-          </button>
-        )}
-
-        {/* Web Google Sign In/Up Buttons (GIS) - Only for non-native platforms */}
-        {!isNativeGoogleAvailable && (
-          <div className="w-full">
-            {googleClientIdConfigured ? (
-              <>
+          {/* Google Sign In/Up - Native on Android (or Web GIS if native unavailable / fallback) */}
+          <div className="w-full min-h-[40px] flex items-center justify-center pb-2">
+            {(() => {
+              const isNativeAvailable = getIsAndroidNativeGoogleAvailable();
+              console.log('[LoginView] Native Google Auth available:', isNativeAvailable, 'androidUseWebFallback:', androidUseWebFallback);
+              return isNativeAvailable && !androidUseWebFallback;
+            })() ? (
+              <Button
+                type="button"
+                onClick={() => {
+                  console.log('[LoginView] Google Sign-In button clicked');
+                  handleAndroidGoogleSignIn();
+                }}
+                disabled={isLoading}
+                className="w-full bg-white border-2 border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300 h-10 flex items-center justify-center gap-2 rounded-xl"
+              >
+                {isLoading ? (
+                  <i className="fas fa-circle-notch animate-spin"></i>
+                ) : (
+                  <>
+                    <i className="fab fa-google text-lg"></i>
+                    {isSignup ? 'Sign up with Google' : 'Sign in with Google'}
+                  </>
+                )}
+              </Button>
+            ) : googleScriptLoading ? (
+              <div className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-400 flex items-center justify-center gap-2">
+                <i className="fab fa-google mr-2"></i>
+                Loading Google Sign-In…
+              </div>
+            ) : googleClientIdConfigured ? (
+              <div className="w-full transition-transform hover:scale-[1.01] active:scale-[0.99]">
                 <div 
                   ref={googleSignInButtonRef} 
-                  className={`w-full flex justify-center min-h-[50px] ${isSignup ? 'hidden' : ''}`}
+                  className={`w-full flex justify-center ${isSignup ? 'hidden' : ''}`}
                 ></div>
                 <div 
                   ref={googleSignUpButtonRef} 
-                  className={`w-full flex justify-center min-h-[50px] ${!isSignup ? 'hidden' : ''}`}
+                  className={`w-full flex justify-center ${!isSignup ? 'hidden' : ''}`}
                 ></div>
-              </>
+              </div>
             ) : (
-              <div className="w-full p-4 bg-slate-50 border border-dashed border-slate-300 rounded-2xl text-xs text-slate-500 text-center animate-pulse">
-                <div className="flex items-center justify-center gap-2 mb-1">
-                  <i className="fab fa-google text-slate-400"></i>
-                  <span className="font-bold">Configuring Google Sign-In...</span>
-                </div>
-                <p className="opacity-70">This usually takes a moment. Please wait.</p>
-                <button 
-                  onClick={() => window.location.reload()}
-                  className="mt-2 text-brand font-bold underline px-2 py-1"
-                >
-                  Refresh App
-                </button>
+              <div className="w-full p-2.5 bg-red-50 border border-red-100 rounded-xl text-[10px] font-bold text-red-400 text-center">
+                Google Sign-In unavailable
               </div>
             )}
           </div>
-        )}
+        </div>
       </div>
       
-      <div className="absolute bottom-4 w-full text-center pointer-events-none z-10">
-          <span className="text-[10px] text-slate-400/80 font-medium">© 2025-2026 MVTechnology</span>
+      <div className="absolute bottom-6 w-full text-center pointer-events-none z-10">
+          <span className="text-[10px] text-slate-400 font-bold opacity-60">© 2026 MVTechnology</span>
       </div>
     </div>
   );

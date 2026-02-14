@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { PaymentStatus } from '../types/payment';
-import { API_BASE_URL, PriceOffer } from '../services/db';
+import { PriceOffer, db } from '../services/db';
 import { initializeRazorpayPayment } from '../services/razorpayService';
 import { PaymentResultType } from '../components/modals/PaymentResultModal';
 
@@ -46,41 +46,23 @@ export const usePayment = ({
          setPaymentStatus('verifying');
          
           try {
-            const verifyUrl = API_BASE_URL ? `${API_BASE_URL}/api/razorpay/verify-payment` : '/api/razorpay/verify-payment';
-            const verifyResponse = await fetch(verifyUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                ...response,
-                username: playerName,
-                pack: hintPack,
-                hintsToAdd: hintCount,
-                amount: offerPrice
-              })
+            const verifyData = await db.verifyRazorpayPayment({
+              ...response,
+              username: playerName,
+              pack: hintPack,
+              hintsToAdd: hintCount,
+              amount: offerPrice
             });
-
-            const contentType = verifyResponse.headers.get('content-type') || '';
-            if (!contentType.includes('application/json')) {
-              const text = await verifyResponse.text();
-              const snippet = text.slice(0, 160).replace(/\s+/g, ' ').trim();
-              throw new Error(
-                `Payment verification API returned non-JSON (HTTP ${verifyResponse.status}). ` +
-                `Response starts with: "${snippet}"`
-              );
-            }
-            const verifyData = await verifyResponse.json();
             if (verifyData.success) {
               playSfx('pay');
               onPaymentSuccess(hintCount, response.razorpay_payment_id, offerPrice);
               setPaymentStatus('idle');
               setShowPaymentModal(false);
-              // Show success popup
               setPaymentResult({
                 type: 'success',
                 message: `Successfully purchased ${hintCount} hints! Your account has been updated.`
               });
             } else {
-              // Verification failed
               setPaymentStatus('idle');
               setShowPaymentModal(false);
               setPaymentResult({
@@ -89,14 +71,13 @@ export const usePayment = ({
                 errorCode: verifyData.errorCode
               });
             }
-          } catch (error: any) {
-            console.error('Verification Error:', error);
+          } catch {
             setPaymentStatus('idle');
             setShowPaymentModal(false);
             setPaymentResult({
               type: 'failed',
               message: 'Failed to verify payment. Please contact support if you were charged.',
-              errorCode: error?.code || 'VERIFICATION_ERROR'
+              errorCode: 'VERIFICATION_ERROR'
             });
           }
         },
