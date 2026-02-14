@@ -201,4 +201,34 @@ Upload this file in Play Console: **Release → Production** (or a testing track
 
 ---
 
+## 13. Google Sign-In after Play Store (“Error getting package info”)
+
+If **Google Sign-In works in debug/release APK** but **fails for the app installed from Play Store** (e.g. “Error getting package info: com.findmypuppy.app2” or sign-in cancels immediately), the cause is usually a **SHA-1 mismatch**: the app distributed by Play is signed with **Google’s App signing key**, not your upload key.
+
+### Fix: Add Play App Signing SHA-1 to Google Cloud
+
+1. **Get the App signing key SHA-1**
+   - Open [Google Play Console](https://play.google.com/console/) → your app **Find My Puppy**
+   - Go to **Release** → **Setup** → **App signing** (or **App integrity**)
+   - Under **App signing key certificate**, copy the **SHA-1 certificate fingerprint** (and optionally SHA-256).
+
+2. **Add it to your Android OAuth client**
+   - Open [Google Cloud Console](https://console.cloud.google.com/) → same project as your Play app
+   - Go to **APIs & Services** → **Credentials**
+   - Find the **Android** OAuth 2.0 Client ID for package **`com.findmypuppy.app2`** (and client id ending in `...apps.googleusercontent.com` from `android/app/src/main/res/values/strings.xml`: `server_client_id`)
+   - Click **Edit** (pencil)
+   - In **SHA-1 certificate fingerprint**, add the fingerprint from step 1 (you can keep existing debug/release upload key SHA-1s)
+   - Click **Save**
+
+3. **Optional: Firebase**
+   - If you use Firebase (e.g. FCM), in **Project settings** → **Your apps** → Android app `com.findmypuppy.app2` → **Add fingerprint** and paste the same **App signing key certificate** SHA-1.
+
+4. **Wait and test**
+   - Allow **5–10 minutes** for changes to propagate
+   - Install the app from Play Store (or an internal testing track) and try **Sign in with Google** again
+
+After the Play App Signing SHA-1 is registered, “Error getting package info” and immediate sign-in cancellation from Play builds should stop.
+
+---
+
 *Last updated: February 2025. Adjust version codes, URLs, and contact details to match your release and Play Console setup.*

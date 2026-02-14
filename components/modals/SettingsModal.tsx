@@ -1,4 +1,5 @@
 import React from 'react';
+import { APP_VERSION } from '../../constants/appVersion';
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -136,7 +137,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
              
              <div className="flex items-center justify-between p-3">
                <span className="font-medium text-slate-600">Version</span>
-               <span className="text-sm font-bold text-slate-400">1.0.0 (Beta)</span>
+               <span className="text-sm font-bold text-slate-400">{APP_VERSION}</span>
              </div>
           </div>
 
