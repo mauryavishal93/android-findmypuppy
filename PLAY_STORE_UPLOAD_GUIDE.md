@@ -173,7 +173,60 @@ Declare and justify these in Play Console where asked:
 
 ---
 
-## 11. Pre-upload checklist
+## 11. Closed testing (12 testers required)
+
+To apply for production, you must run a closed test with **at least 12 testers** opted in for **14 consecutive days** before applying.
+
+### Step 1: Create a closed test track
+
+1. In Play Console, go to **Testing** → **Closed testing**.
+2. Create a new track (e.g. "Closed test 1") if you haven’t already.
+
+### Step 2: Add testers (need 12+ opted in)
+
+1. Go to **Testing** → **Closed testing** → your track.
+2. Open the **Testers** tab.
+3. Create an **email list**:
+   - Click **Create email list**.
+   - Name it (e.g. "Find My Puppy Closed Testers").
+   - Add at least 12 email addresses (invite more than 12 to account for non-responders).
+   - Save the list.
+4. Add the list to the closed test:
+   - Under **Testers**, select your email list.
+   - Save.
+
+### Step 3: Invite and opt-in
+
+- Each tester receives an email invitation.
+- They must click the opt-in link and accept the terms.
+- They stay opted in until they manually opt out — they must remain opted in for 14 days.
+- You can check opt-in status in the track’s **Testers** tab.
+
+### Step 4: Upload a build and release
+
+1. In **Closed testing** → your track → **Releases**.
+2. Click **Create new release**.
+3. Upload your signed AAB (see section 13).
+4. Add release notes and submit for review.
+5. Once approved, testers can install via the Play Store opt-in link.
+
+### Step 5: Wait 14 days before applying for production
+
+- Keep **at least 12 testers** opted in for **14 consecutive days**.
+- Do not remove testers or let the count drop below 12.
+- After 14 days, you can apply for production access in Play Console.
+
+### Quick checklist
+
+- [ ] Closed test track created.
+- [ ] Email list with 12+ addresses added as testers.
+- [ ] At least 12 testers opted in (confirm in Play Console).
+- [ ] AAB uploaded and released to the closed test.
+- [ ] 14 consecutive days with 12+ opted-in testers elapsed before applying for production.
+
+---
+
+## 12. Pre-upload checklist
 
 - [ ] **Version code** incremented in `android/app/build.gradle` for each new release.
 - [ ] **Release build** signed with your upload key (or Play App Signing key).
@@ -186,7 +239,7 @@ Declare and justify these in Play Console where asked:
 
 ---
 
-## 12. Build and export release AAB
+## 13. Build and export release AAB
 
 From project root:
 
@@ -201,7 +254,7 @@ Upload this file in Play Console: **Release → Production** (or a testing track
 
 ---
 
-## 13. Google Sign-In after Play Store (“Error getting package info”)
+## 14. Google Sign-In after Play Store (“Error getting package info”)
 
 If **Google Sign-In works in debug/release APK** but **fails for the app installed from Play Store** (e.g. “Error getting package info: com.findmypuppy.app2” or sign-in cancels immediately), the cause is usually a **SHA-1 mismatch**: the app distributed by Play is signed with **Google’s App signing key**, not your upload key.
 

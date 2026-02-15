@@ -140,6 +140,19 @@ export default function App() {
   const selectedTheme = progress.selectedTheme || 'night';
   const activeTheme = THEME_CONFIGS[selectedTheme as ThemeType] || THEME_CONFIGS['night'];
 
+  // Hide native splash screen after first paint (Capacitor Android) so user never sees blank screen
+  useEffect(() => {
+    let cancelled = false;
+    const hideSplash = () => {
+      if (cancelled) return;
+      import('@capacitor/splash-screen').then(({ SplashScreen }) => SplashScreen.hide()).catch(() => {});
+    };
+    requestAnimationFrame(() => {
+      requestAnimationFrame(hideSplash);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
   // Google Auth: initialize once at startup
   useEffect(() => {
     initializeGoogleAuth();
