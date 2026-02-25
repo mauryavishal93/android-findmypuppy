@@ -1,6 +1,10 @@
 # Find My Puppy - Release Notes
 
-## Version 1.0.8 (Current)
+## Version 1.1.0 (Current)
+
+---
+
+## Version 1.0.8
 
 ### 🎨 Theme System Improvements
 - **Default Theme**: Set "Starry Night" as the default theme for all new users

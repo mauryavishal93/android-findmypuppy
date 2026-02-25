@@ -10,8 +10,8 @@ Use this document when uploading the app to the Google Play Console. Fill in any
 |-------|--------|
 | **App name** | Find My Puppy |
 | **Package name** | `com.findmypuppy.app2` |
-| **Version name** | 1.0 |
-| **Version code** | 1 (increment for each release) |
+| **Version name** | 1.1.0 |
+| **Version code** | 9 (increment for each release) |
 | **Default language** | English (en-US) |
 
 ---
