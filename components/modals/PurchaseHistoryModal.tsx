@@ -59,33 +59,33 @@ export const PurchaseHistoryModal: React.FC<PurchaseHistoryModalProps> = ({
 
   return (
     <ModalBase isOpen={true} onClose={onClose} maxWidth="md">
-      <ModalHeader className="bg-gradient-to-r from-indigo-100 to-purple-100 p-6 pb-4 border-b border-indigo-200">
+      <ModalHeader className="bg-gradient-to-r from-indigo-100 to-purple-100 p-6 pb-4 border-b border-slate-200">
         <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">
-          <i className="fas fa-history text-lg"></i>
-          Buy History
+          <i className="fas fa-history text-indigo-600"></i>
+          Purchase History
         </h2>
       </ModalHeader>
-      <ModalContent className="px-6 py-4">
+      <ModalContent className="px-6 py-4 bg-slate-50">
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <div className="flex flex-col items-center gap-3">
-                <i className={`fas fa-spinner fa-spin text-3xl ${activeTheme.text} opacity-50`}></i>
-                <p className={`text-sm font-medium ${activeTheme.subText}`}>Loading purchase history...</p>
+                <i className="fas fa-spinner fa-spin text-3xl text-slate-400"></i>
+                <p className="text-sm font-medium text-slate-600">Loading purchase history...</p>
               </div>
             </div>
           ) : error ? (
             <div className="flex items-center justify-center py-12">
               <div className="flex flex-col items-center gap-3 text-center">
-                <i className={`fas fa-exclamation-circle text-4xl text-red-500`}></i>
-                <p className={`text-sm font-medium ${activeTheme.text}`}>{error}</p>
+                <i className="fas fa-exclamation-circle text-4xl text-red-500"></i>
+                <p className="text-sm font-medium text-slate-700">{error}</p>
               </div>
             </div>
           ) : purchases.length === 0 ? (
             <div className="flex items-center justify-center py-12">
               <div className="flex flex-col items-center gap-3 text-center">
-                <i className={`fas fa-shopping-bag text-4xl ${activeTheme.text} opacity-30`}></i>
-                <p className={`text-sm font-medium ${activeTheme.subText}`}>No purchases yet</p>
-                <p className={`text-xs ${activeTheme.subText} opacity-70`}>Your purchase history will appear here</p>
+                <i className="fas fa-shopping-bag text-4xl text-slate-300"></i>
+                <p className="text-sm font-semibold text-slate-700">No purchases yet</p>
+                <p className="text-xs text-slate-500">Your purchase history will appear here</p>
               </div>
             </div>
           ) : (
@@ -93,55 +93,57 @@ export const PurchaseHistoryModal: React.FC<PurchaseHistoryModalProps> = ({
               {purchases.map((purchase) => (
                 <div
                   key={purchase.purchaseId}
-                  className={`${activeTheme.cardBg} rounded-2xl p-4 border border-white/20 shadow-sm`}
+                  className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm hover:shadow-md transition-shadow"
                 >
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                        purchase.purchaseType === 'Premium' 
-                          ? 'bg-gradient-to-br from-purple-500 to-pink-500' 
-                          : 'bg-gradient-to-br from-yellow-400 to-orange-500'
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 ${
+                        purchase.purchaseType === 'Premium'
+                          ? 'bg-gradient-to-br from-purple-500 to-indigo-600'
+                          : 'bg-gradient-to-br from-amber-400 to-orange-500'
                       }`}>
                         <i className={`fas ${
-                          purchase.purchaseType === 'Premium' 
-                            ? 'fa-crown' 
+                          purchase.purchaseType === 'Premium'
+                            ? 'fa-crown'
                             : 'fa-lightbulb'
-                        } text-white text-sm`}></i>
+                        } text-white text-base`}></i>
                       </div>
-                      <div>
-                        <h3 className={`font-black text-sm ${activeTheme.text}`}>
-                          {purchase.purchaseType}
+                      <div className="min-w-0">
+                        <h3 className="font-bold text-slate-800 text-sm leading-tight">
+                          {purchase.purchaseType} · {purchase.pack}
                         </h3>
-                        <p className={`text-xs ${activeTheme.subText}`}>
-                          {purchase.pack}
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {formatDate(purchase.purchaseDate)}
+                        </p>
+                        <p className="text-[10px] text-slate-400 font-mono mt-1 truncate" title={purchase.purchaseId}>
+                          {purchase.purchaseId}
                         </p>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className={`font-black text-sm ${activeTheme.text}`}>
-                      {purchase.purchaseMode === 'Points'
-                        ? `Pts ${purchase.amount}`
-                        : `₹${purchase.amount.toFixed(2)}`}
+                    <div className="text-right shrink-0">
+                      <p className={`font-bold text-sm ${
+                        purchase.purchaseMode === 'Points'
+                          ? 'text-indigo-600'
+                          : 'text-emerald-600'
+                      }`}>
+                        {purchase.purchaseMode === 'Points'
+                          ? `${purchase.amount} pts`
+                          : `₹${purchase.amount.toFixed(2)}`}
                       </p>
-                      <p className={`text-[10px] ${activeTheme.subText} opacity-70`}>
-                        {formatDate(purchase.purchaseDate)}
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        {purchase.purchaseMode === 'Points' ? 'Points' : 'Paid'}
                       </p>
                     </div>
-                  </div>
-                  <div className="mt-2 pt-2 border-t border-white/10">
-                    <p className={`text-[10px] font-mono ${activeTheme.subText} opacity-60`}>
-                      ID: {purchase.purchaseId}
-                    </p>
                   </div>
                 </div>
               ))}
             </div>
           )}
       </ModalContent>
-      <ModalFooter className="px-6 py-4 border-t border-slate-200">
+      <ModalFooter className="px-6 py-4 border-t border-slate-200 bg-white">
         <button
           onClick={onClose}
-          className={`w-full ${activeTheme.button} text-white font-bold py-3 rounded-xl shadow-lg hover:opacity-90 transition-all`}
+          className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl shadow-md transition-colors"
         >
           Close
         </button>
