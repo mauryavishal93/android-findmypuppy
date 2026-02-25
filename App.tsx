@@ -3,9 +3,10 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Difficulty, UserProgress, ThemeType } from './types';
 import { THEME_CONFIGS } from './constants/themeConfig';
 import { LevelSelector } from './components/LevelSelector';
-import { InfoModal } from './components/modals/InfoModal';
+import { ExplorersGuideModal } from './components/modals/ExplorersGuideModal';
 import { ExplorerGuide } from './components/ExplorerGuide';
 import { LeaderboardModal } from './components/modals/LeaderboardModal';
+import { PuppyDesignsModal } from './components/modals/PuppyDesignsModal';
 import { ThemeModal } from './components/modals/ThemeModal';
 import { PaymentModal } from './components/modals/PaymentModal';
 import { PaymentResultModal } from './components/modals/PaymentResultModal';
@@ -29,6 +30,8 @@ import { db, PriceOffer, GameConfig } from './services/db';
 import { initializeGoogleAuth } from './services/googleAuthConfig';
 import { triggerHaptic, setHapticIntensity } from './utils/haptics';
 import { initializeNotifications, setupNotificationListeners } from './services/notifications';
+import { App as CapacitorApp } from '@capacitor/app';
+import { Capacitor } from '@capacitor/core';
 
 function getInitialView(): 'LOGIN' | 'HOME' | 'LEVEL_SELECT' | 'GAME' | 'WIN' | 'GAME_OVER' | 'GAME_LOST' | 'DELETE_ACCOUNT' {
   // Always start with HOME screen - users can navigate to login via the login button
@@ -79,6 +82,9 @@ export default function App() {
   
   // Explorer Guide State
   const [showExplorerGuide, setShowExplorerGuide] = useState(false);
+
+  // Puppy Designs Modal State
+  const [showPuppyDesigns, setShowPuppyDesigns] = useState(false);
 
   // Leaderboard Modal State
   const [showLeaderboard, setShowLeaderboard] = useState(false);
@@ -132,6 +138,10 @@ export default function App() {
     // Ensure unlockedThemes exists and includes at least first 2
     if (!parsed.unlockedThemes || parsed.unlockedThemes.length < 2) {
       parsed.unlockedThemes = ['sunny', 'night'];
+    }
+    // Ensure selectedTheme defaults to 'night' (Starry Night) if not set or invalid
+    if (!parsed.selectedTheme || !Object.keys(THEME_CONFIGS).includes(parsed.selectedTheme)) {
+      parsed.selectedTheme = 'night';
     }
     return { ...defaultProgress, ...parsed };
   });
@@ -292,8 +302,10 @@ export default function App() {
             puppyRunHighScore: user.puppyRunHighScore || 0,
             unlockedThemes: (user.unlockedThemes ? user.unlockedThemes.filter((t): t is ThemeType => 
               Object.keys(THEME_CONFIGS).includes(t)
-            ) : ['sunny', 'night']) as ThemeType[]
-            // Preserve theme as it might be local pref or we could sync it if DB supported it
+            ) : ['sunny', 'night']) as ThemeType[],
+            // Preserve theme selection from local storage (theme preference is local-only)
+            // If no theme is set locally, default to 'night' (Starry Night)
+            selectedTheme: prev.selectedTheme || 'night'
           };
         });
       }
@@ -586,29 +598,8 @@ export default function App() {
       // Calculate total completed games (all difficulties combined)
       const totalCompletedGames = levelPassedEasy + levelPassedMedium + levelPassedHard;
       
-      // Check for theme unlock (every 10 games, starting from game 10)
-      let newlyUnlockedTheme: ThemeType | null = null;
-      if (isFirstClear && prev.playerName && totalCompletedGames > 0 && totalCompletedGames % 10 === 0) {
-        // Get all themes and find the next locked one
-        const allThemes = Object.keys(THEME_CONFIGS) as ThemeType[];
-        const currentUnlocked = prev.unlockedThemes || ['sunny', 'night'];
-        const nextLockedTheme = allThemes.find(theme => !currentUnlocked.includes(theme));
-        
-        if (nextLockedTheme) {
-          newlyUnlockedTheme = nextLockedTheme;
-          // Unlock via games method
-          db.unlockTheme(prev.playerName, nextLockedTheme, 'games').then((result) => {
-            if (result.success && result.unlockedThemes) {
-              setProgress(p => ({
-                ...p,
-                unlockedThemes: result.unlockedThemes as ThemeType[]
-              }));
-            }
-          }).catch(err => {
-            console.error('Failed to unlock theme:', err);
-          });
-        }
-      }
+      // Themes are now only unlocked via points (25 points per theme)
+      // Removed automatic unlock every 10 games
       
       if (prev.playerName) {
         if (pointsAwarded > 0) {
@@ -636,10 +627,7 @@ export default function App() {
       return {
         ...prev,
         clearedLevels: updatedClearedLevels,
-        totalScore: newTotalScore,
-        unlockedThemes: newlyUnlockedTheme 
-          ? [...(prev.unlockedThemes || ['sunny', 'night']), newlyUnlockedTheme]
-          : prev.unlockedThemes
+        totalScore: newTotalScore
       };
     });
 
@@ -777,16 +765,21 @@ export default function App() {
   };
 
   const handleBack = useCallback(() => {
-    // 1. If any modal is open, close it and ensure we are on HOME (Select Difficulty)
-    if (showInfoModal || showThemeModal || showPurchaseHistoryModal || showPaymentModal || showLeaderboard || showSettingsModal) {
+    // 1. If any modal is open, close it first (don't navigate away)
+    if (showInfoModal || showThemeModal || showPurchaseHistoryModal || showPaymentModal || showLeaderboard || showSettingsModal || showReferModal || showAchievementsModal || showForgotPasswordModal || showResetPasswordModal || showExplorerGuide || showPuppyDesigns) {
       setShowInfoModal(false);
       setShowLeaderboard(false);
       setShowThemeModal(false);
       setShowPurchaseHistoryModal(false);
       setShowSettingsModal(false);
+      setShowReferModal(false);
+      setShowAchievementsModal(false);
+      setShowForgotPasswordModal(false);
+      setShowResetPasswordModal(false);
+      setShowExplorerGuide(false);
+      setShowPuppyDesigns(false);
       closePaymentModal();
-      setView('HOME');
-      return;
+      return; // Don't navigate, just close modal
     }
 
     // 2. If quit confirmation is open, just close it
@@ -804,16 +797,22 @@ export default function App() {
       case 'LEVEL_SELECT':
       case 'WIN':
       case 'GAME_OVER':
+      case 'GAME_LOST':
+        // Navigate back to HOME
         setView('HOME');
-        break;
-      case 'HOME':
-        // Base screen - natural back behavior handled by history stack
         break;
       case 'LOGIN':
       case 'DELETE_ACCOUNT':
+        // Navigate back to HOME
         setView('HOME');
         break;
+      case 'HOME':
+        // On HOME screen - exit app will be handled by Android back button listener
+        // For web, allow browser back behavior
+        break;
       default:
+        // Fallback: go to HOME
+        setView('HOME');
         break;
     }
   }, [
@@ -824,36 +823,125 @@ export default function App() {
     showPaymentModal, 
     showQuitConfirm, 
     showSettingsModal,
+    showReferModal,
+    showAchievementsModal,
+    showForgotPasswordModal,
+    showResetPasswordModal,
+    showExplorerGuide,
     closePaymentModal
   ]);
 
-  // Sync history state to intercept hardware back button on Android/Mobile
+  // Android Back Button Handler - Proper navigation stack management
   useEffect(() => {
-    // Base screen: HOME (Select Difficulty) only; LOGIN and DELETE_ACCOUNT are sub-screens that back navigates from
-    const isBaseScreen = view === 'HOME' && 
-                         !showInfoModal && !showThemeModal && 
-                         !showPurchaseHistoryModal && !showPaymentModal && 
-                         !showQuitConfirm && !showLeaderboard && !showSettingsModal;
+    if (!Capacitor.isNativePlatform()) {
+      // Web: Use browser history API
+      // Check if we're on HOME screen with no modals open
+      const isOnHomeScreen = view === 'HOME' && 
+                             !showInfoModal && !showThemeModal && 
+                             !showPurchaseHistoryModal && !showPaymentModal && 
+                             !showQuitConfirm && !showLeaderboard && !showSettingsModal &&
+                             !showReferModal && !showAchievementsModal && !showForgotPasswordModal &&
+                             !showResetPasswordModal && !showExplorerGuide && !showPuppyDesigns;
 
-    if (!isBaseScreen) {
-      // If we are not on a base screen, ensure there is a history entry to "pop"
-      // This prevents the hardware back button from closing the app immediately.
-      if (window.history.state?.page !== 'sub-screen') {
-        window.history.pushState({ page: 'sub-screen' }, '');
+      if (!isOnHomeScreen) {
+        // If we are not on a base screen, ensure there is a history entry to "pop"
+        // This prevents the hardware back button from closing the app immediately.
+        if (window.history.state?.page !== 'sub-screen') {
+          window.history.pushState({ page: 'sub-screen' }, '');
+        }
       }
+
+      const onPopState = () => {
+        // Recalculate isOnHomeScreen inside the handler to get current state
+        const currentIsOnHomeScreen = view === 'HOME' && 
+                                      !showInfoModal && !showThemeModal && 
+                                      !showPurchaseHistoryModal && !showPaymentModal && 
+                                      !showQuitConfirm && !showLeaderboard && !showSettingsModal &&
+                                      !showReferModal && !showAchievementsModal && !showForgotPasswordModal &&
+                                      !showResetPasswordModal && !showExplorerGuide;
+        
+        // If the back button was pressed and we are in a sub-screen/modal,
+        // intercept it and run our custom back logic.
+        if (!currentIsOnHomeScreen) {
+          handleBack();
+        }
+      };
+
+      window.addEventListener('popstate', onPopState);
+      return () => window.removeEventListener('popstate', onPopState);
+    }
+  }, [
+    view, 
+    showInfoModal, 
+    showThemeModal, 
+    showPurchaseHistoryModal, 
+    showPaymentModal, 
+    showQuitConfirm, 
+    showLeaderboard, 
+    showSettingsModal,
+    showReferModal,
+    showAchievementsModal,
+    showForgotPasswordModal,
+    showResetPasswordModal,
+    showExplorerGuide,
+    showPuppyDesigns,
+    handleBack
+  ]);
+
+  // Separate effect for Android back button (to avoid issues with web)
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) {
+      return; // Skip on web
     }
 
-    const onPopState = () => {
-      // If the back button was pressed and we are in a sub-screen/modal,
-      // intercept it and run our custom back logic.
-      if (!isBaseScreen) {
+    // Android: Use Capacitor App plugin for proper back button handling
+    let isMounted = true;
+    let listenerPromise: Promise<any> | null = null;
+    
+    listenerPromise = CapacitorApp.addListener('backButton', () => {
+      if (!isMounted) return;
+      
+      // Always read current state values directly
+      // This effect will recreate the listener when dependencies change
+      const currentIsOnHomeScreen = view === 'HOME' && 
+                                     !showInfoModal && !showThemeModal && 
+                                     !showPurchaseHistoryModal && !showPaymentModal && 
+                                     !showQuitConfirm && !showLeaderboard && !showSettingsModal &&
+                                     !showReferModal && !showAchievementsModal && !showForgotPasswordModal &&
+                                     !showResetPasswordModal && !showExplorerGuide;
+
+      if (currentIsOnHomeScreen) {
+        // On HOME screen - exit the app
+        CapacitorApp.exitApp();
+      } else {
+        // Not on HOME screen - navigate back using our custom handler
         handleBack();
       }
-    };
+    });
 
-    window.addEventListener('popstate', onPopState);
-    return () => window.removeEventListener('popstate', onPopState);
-  }, [view, showInfoModal, showThemeModal, showPurchaseHistoryModal, showPaymentModal, showQuitConfirm, showLeaderboard, showSettingsModal, handleBack]);
+    return () => {
+      isMounted = false;
+      if (listenerPromise) {
+        listenerPromise.then(listener => listener.remove()).catch(() => {});
+      }
+    };
+  }, [
+    view, 
+    showInfoModal, 
+    showThemeModal, 
+    showPurchaseHistoryModal, 
+    showPaymentModal, 
+    showQuitConfirm, 
+    showLeaderboard, 
+    showSettingsModal,
+    showReferModal,
+    showAchievementsModal,
+    showForgotPasswordModal,
+    showResetPasswordModal,
+    showExplorerGuide,
+    showPuppyDesigns,
+    handleBack
+  ]);
 
   if (maintenanceMode?.enabled) {
     return (
@@ -905,12 +993,6 @@ export default function App() {
               setSelectedDifficulty(diff);
               setView('LEVEL_SELECT');
             }}
-            onToggleMute={toggleMute}
-            isMuted={isMuted}
-            backgroundMusicEnabled={backgroundMusicEnabled}
-            soundEffectsEnabled={soundEffectsEnabled}
-            onToggleBackgroundMusic={toggleBackgroundMusic}
-            onToggleSoundEffects={toggleSoundEffects}
             onOpenThemeModal={() => setShowThemeModal(true)}
             onOpenInfoModal={() => setShowInfoModal(true)}
             onOpenSettings={() => setShowSettingsModal(true)}
@@ -1172,17 +1254,26 @@ export default function App() {
         )}
 
         {showInfoModal && (
-          <InfoModal 
+          <ExplorersGuideModal
+            isOpen={showInfoModal}
             onClose={() => setShowInfoModal(false)}
-            onOpenExplorerGuide={() => setShowExplorerGuide(true)}
-            onOpenLeaderboard={() => {
+            onOpenFullGuide={() => {
               setShowInfoModal(false);
-              setShowLeaderboard(true);
+              setShowExplorerGuide(true);
+            }}
+            onOpenPuppyDesigns={() => {
+              setShowPuppyDesigns(true);
             }}
             onNavigateToDeleteAccount={() => {
               setShowInfoModal(false);
               setView('DELETE_ACCOUNT');
             }}
+          />
+        )}
+
+        {showPuppyDesigns && (
+          <PuppyDesignsModal
+            onClose={() => setShowPuppyDesigns(false)}
           />
         )}
 
@@ -1217,6 +1308,10 @@ export default function App() {
           <ExplorerGuide
             activeTheme={activeTheme}
             onClose={() => setShowExplorerGuide(false)}
+            onOpenPuppyDesigns={() => {
+              setShowExplorerGuide(false);
+              setShowPuppyDesigns(true);
+            }}
           />
         )}
 
@@ -1340,6 +1435,7 @@ export default function App() {
             </div>
           </div>
         )}
+
       </div>
     </div>
   );

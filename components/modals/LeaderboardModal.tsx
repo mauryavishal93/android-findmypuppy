@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ThemeConfig } from '../../types';
 import { db } from '../../services/db';
+import { ModalBase, ModalHeader, ModalContent, ModalFooter } from './ModalBase';
 
 interface LeaderboardEntry {
   username: string;
@@ -90,66 +91,63 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
     return `#${rank}`;
   };
 
-  const getRankColor = (rank: number) => {
-    if (rank === 1) return 'from-yellow-400 to-yellow-600';
-    if (rank === 2) return 'from-gray-300 to-gray-500';
-    if (rank === 3) return 'from-orange-400 to-orange-600';
-    return 'from-blue-400 to-blue-600';
+  const getRankBadgeStyle = (rank: number) => {
+    if (rank === 1) return 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-white';
+    if (rank === 2) return 'bg-gradient-to-br from-gray-300 to-gray-500 text-white';
+    if (rank === 3) return 'bg-gradient-to-br from-orange-400 to-orange-600 text-white';
+    return 'bg-slate-600 text-white';
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
-      <div 
-        className={`${activeTheme.cardBg} ${activeTheme.text} rounded-2xl p-6 w-full max-w-md shadow-2xl relative border-2 border-white/20`}
-        style={{
-          boxShadow: '0 8px 32px rgba(0,0,0,0.3), inset 0 2px 4px rgba(255,255,255,0.1)',
-        }}
-      >
-        {/* Close Button */}
-        <button
-          onClick={onClose}
-          className={`absolute top-4 right-4 w-8 h-8 rounded-full ${activeTheme.iconBg} flex items-center justify-center hover:scale-110 active:scale-95 transition-transform`}
-        >
-          <i className="fas fa-times text-sm"></i>
-        </button>
-
-        {/* Header + Tabs */}
-        <div className="text-center mb-4">
+    <ModalBase isOpen={isOpen} onClose={onClose} maxWidth="md">
+      <ModalHeader className="bg-gradient-to-br from-yellow-50 via-amber-50 to-yellow-50 p-6 pb-4 border-b border-amber-200">
+        <div className="text-center">
           <div className="text-4xl mb-2">🏆</div>
-          <h2 className="text-2xl font-black mb-1">Leaderboard</h2>
+          <h2 className="text-2xl font-black text-slate-800 mb-1">Leaderboard</h2>
           <div className="flex justify-center gap-2 mt-3">
             <button
               onClick={() => setTab('points')}
-              className={`px-4 py-2 rounded-xl font-bold text-sm transition-all ${tab === 'points' ? activeTheme.button + ' shadow-lg' : activeTheme.iconBg}`}
+              className={`px-4 py-2 rounded-xl font-bold text-sm transition-all ${
+                tab === 'points' 
+                  ? 'bg-amber-500 text-white shadow-lg' 
+                  : 'bg-white border border-slate-300 text-slate-700'
+              }`}
             >
               Points
             </button>
             <button
               onClick={() => setTab('referrals')}
-              className={`px-4 py-2 rounded-xl font-bold text-sm transition-all ${tab === 'referrals' ? activeTheme.button + ' shadow-lg' : activeTheme.iconBg}`}
+              className={`px-4 py-2 rounded-xl font-bold text-sm transition-all ${
+                tab === 'referrals' 
+                  ? 'bg-amber-500 text-white shadow-lg' 
+                  : 'bg-white border border-slate-300 text-slate-700'
+              }`}
             >
               Top Referrers
             </button>
           </div>
         </div>
-
+      </ModalHeader>
+      <ModalContent className="p-6">
         {/* Leaderboard Content */}
         {tab === 'referrals' ? (
           loading ? (
             <div className="flex justify-center py-12"><div className="text-3xl animate-spin">🎮</div></div>
           ) : referralLeaderboard.length === 0 ? (
             <div className="text-center py-12">
-              <p className={`text-sm ${activeTheme.subText}`}>No referrers yet. Share your link to climb!</p>
+              <p className="text-sm text-slate-600">No referrers yet. Share your link to climb!</p>
             </div>
           ) : (
             <div className="space-y-2 max-h-96 overflow-y-auto">
               {referralLeaderboard.map((entry) => (
-                <div key={entry.rank} className={`flex items-center gap-3 p-3 rounded-xl ${activeTheme.cardBg} border border-white/20`}>
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-sm ${activeTheme.iconBg}`}>
+                <div key={entry.rank} className="flex items-center gap-3 p-3 rounded-xl bg-white border border-slate-200">
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-sm ${
+                    entry.rank <= 3 ? getRankBadgeStyle(entry.rank) : 'bg-slate-600 text-white'
+                  }`}>
                     {entry.rank <= 3 ? ['🥇','🥈','🥉'][entry.rank - 1] : `#${entry.rank}`}
                   </div>
-                  <div className="flex-1 font-bold text-sm truncate">{entry.username}</div>
-                  <div className={`px-3 py-1 rounded-lg font-black text-sm ${activeTheme.accent} bg-white/20`}>
+                  <div className="flex-1 font-bold text-sm truncate text-slate-700">{entry.username}</div>
+                  <div className="px-3 py-1 rounded-full font-black text-sm bg-blue-100 text-blue-600">
                     {entry.referredCount} referred
                   </div>
                 </div>
@@ -160,16 +158,16 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
               <div className="text-3xl mb-2 animate-spin">🎮</div>
-              <p className={`text-sm ${activeTheme.subText}`}>Loading leaderboard...</p>
+              <p className="text-sm text-slate-600">Loading leaderboard...</p>
             </div>
           </div>
         ) : error ? (
           <div className="text-center py-12">
             <div className="text-3xl mb-2">😕</div>
-            <p className={`text-sm ${activeTheme.subText} mb-4`}>{error}</p>
+            <p className="text-sm text-slate-600 mb-4">{error}</p>
             <button
               onClick={loadLeaderboard}
-              className={`px-4 py-2 rounded-lg ${activeTheme.button} hover:scale-105 active:scale-95 transition-transform`}
+              className="px-4 py-2 rounded-lg bg-amber-500 text-white font-bold hover:scale-105 active:scale-95 transition-transform shadow-md"
             >
               Try Again
             </button>
@@ -177,7 +175,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
         ) : leaderboard.length === 0 ? (
           <div className="text-center py-12">
             <div className="text-3xl mb-2">📊</div>
-            <p className={`text-sm ${activeTheme.subText}`}>No players yet. Be the first!</p>
+            <p className="text-sm text-slate-600">No players yet. Be the first!</p>
           </div>
         ) : (
           <div className="space-y-2 max-h-96 overflow-y-auto">
@@ -189,39 +187,41 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
                   key={entry.rank}
                   className={`flex items-center gap-3 p-3 rounded-xl transition-all ${
                     isCurrentUser
-                      ? `bg-gradient-to-r ${getRankColor(entry.rank)} border-2 border-yellow-300 shadow-lg`
-                      : `${activeTheme.cardBg} border border-white/20`
+                      ? 'bg-gradient-to-r from-yellow-500 to-amber-300 border-2 border-yellow-400 shadow-lg'
+                      : 'bg-white border border-slate-200'
                   }`}
                   style={{
                     boxShadow: isCurrentUser 
                       ? '0 4px 12px rgba(255,215,0,0.3)' 
-                      : '0 2px 8px rgba(0,0,0,0.1)',
+                      : '0 1px 3px rgba(0,0,0,0.1)',
                   }}
                 >
-                  {/* Rank */}
+                  {/* Rank Badge */}
                   <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center font-black text-sm ${
-                    entry.rank <= 3 
-                      ? 'bg-white/30 backdrop-blur-md' 
-                      : `${activeTheme.iconBg}`
+                    isCurrentUser && entry.rank === 1
+                      ? 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-white border-2 border-yellow-300'
+                      : entry.rank <= 3 
+                      ? getRankBadgeStyle(entry.rank)
+                      : 'bg-slate-600 text-white'
                   }`}>
-                    {getRankIcon(entry.rank)}
+                    {entry.rank <= 3 ? getRankIcon(entry.rank) : `#${entry.rank}`}
                   </div>
 
                   {/* Username */}
                   <div className="flex-1 min-w-0">
                     <div className={`font-bold text-sm truncate ${
-                      isCurrentUser ? 'text-white' : activeTheme.text
+                      isCurrentUser ? 'text-slate-800' : 'text-slate-700'
                     }`}>
                       {entry.username}
-                      {isCurrentUser && <span className="ml-2 text-xs">(You)</span>}
+                      {isCurrentUser && <span className="ml-2 text-xs opacity-80">(You)</span>}
                     </div>
                   </div>
 
                   {/* Points */}
-                  <div className={`flex-shrink-0 px-3 py-1 rounded-lg font-black text-sm ${
+                  <div className={`flex-shrink-0 px-3 py-1 rounded-full font-black text-sm ${
                     isCurrentUser 
-                      ? 'bg-white/30 text-white' 
-                      : `${activeTheme.accent} bg-white/20`
+                      ? 'bg-amber-600 text-white' 
+                      : 'bg-blue-100 text-blue-600'
                   }`}>
                     {entry.points.toLocaleString()} pts
                   </div>
@@ -229,24 +229,24 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
               );
             })}
 
-            {/* Divider if current user is shown at bottom */}
+            {/* Divider if current user is shown at bottom (Not in Top 10) */}
             {currentUser && (
               <>
                 <div className="flex items-center gap-2 my-3">
-                  <div className="flex-1 h-px bg-white/20"></div>
-                  <div className={`text-xs ${activeTheme.subText} px-2`}>Your Rank</div>
-                  <div className="flex-1 h-px bg-white/20"></div>
+                  <div className="flex-1 h-px bg-slate-200"></div>
+                  <div className="text-xs text-slate-500 px-2">Your Rank</div>
+                  <div className="flex-1 h-px bg-slate-200"></div>
                 </div>
 
-                {/* Current User (Not in Top 10) */}
+                {/* Current User (Not in Top 10) - Purple-Pink Gradient Highlight */}
                 <div
-                  className={`flex items-center gap-3 p-3 rounded-xl transition-all bg-gradient-to-r from-purple-500 to-pink-500 border-2 border-yellow-300 shadow-lg`}
+                  className="flex items-center gap-3 p-3 rounded-xl transition-all bg-gradient-to-r from-purple-500 to-pink-500 border-2 border-yellow-400 shadow-lg"
                   style={{
                     boxShadow: '0 4px 12px rgba(255,215,0,0.3)',
                   }}
                 >
-                  {/* Rank */}
-                  <div className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center font-black text-sm bg-white/30 backdrop-blur-md">
+                  {/* Rank Badge */}
+                  <div className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center font-black text-sm bg-purple-600 border-2 border-white text-white">
                     #{currentUser.rank}
                   </div>
 
@@ -254,12 +254,12 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
                   <div className="flex-1 min-w-0">
                     <div className="font-bold text-sm truncate text-white">
                       {currentUser.username}
-                      <span className="ml-2 text-xs">(You)</span>
+                      <span className="ml-2 text-xs opacity-90">(You)</span>
                     </div>
                   </div>
 
                   {/* Points */}
-                  <div className="flex-shrink-0 px-3 py-1 rounded-lg font-black text-sm bg-white/30 text-white">
+                  <div className="flex-shrink-0 px-3 py-1 rounded-full font-black text-sm bg-pink-600 text-white">
                     {currentUser.points.toLocaleString()} pts
                   </div>
                 </div>
@@ -267,14 +267,12 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
             )}
           </div>
         )}
-
-        {/* Footer */}
-        <div className="mt-6 text-center">
-          <p className={`text-xs ${activeTheme.subText}`}>
-            Rankings are based on total points earned
-          </p>
-        </div>
-      </div>
-    </div>
+      </ModalContent>
+      <ModalFooter className="p-6 pt-0 text-center">
+        <p className="text-xs text-slate-500">
+          Rankings are based on total points earned
+        </p>
+      </ModalFooter>
+    </ModalBase>
   );
 };

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Button } from '../ui/Button';
+import { ModalBase, ModalContent } from './ModalBase';
 
 export type PaymentResultType = 'success' | 'failed' | 'cancelled' | 'declined';
 
@@ -75,8 +76,8 @@ export const PaymentResultModal: React.FC<PaymentResultModalProps> = ({
   const displayMessage = message || config.defaultMessage;
 
   return (
-    <div className="absolute inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in">
-      <div className={`bg-white rounded-[2rem] p-8 w-full max-w-sm text-center shadow-2xl relative border-4 ${config.borderColor} overflow-hidden flex flex-col items-center animate-fade-in`}>
+    <ModalBase isOpen={true} onClose={onClose} maxWidth="sm" className={`border-4 ${config.borderColor} relative`}>
+      <ModalContent className="p-8 text-center flex flex-col items-center relative">
         {/* Animated Background Pattern */}
         <div className="absolute inset-0 opacity-5">
           {[...Array(30)].map((_, i) => (
@@ -167,8 +168,8 @@ export const PaymentResultModal: React.FC<PaymentResultModalProps> = ({
             </Button>
           </div>
         </div>
-      </div>
-    </div>
+      </ModalContent>
+    </ModalBase>
   );
 };
 

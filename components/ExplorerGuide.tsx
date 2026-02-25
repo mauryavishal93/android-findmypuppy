@@ -4,6 +4,7 @@ import { ThemeConfig } from '../types';
 interface ExplorerGuideProps {
   activeTheme: ThemeConfig;
   onClose: () => void;
+  onOpenPuppyDesigns?: () => void;
 }
 
 const GUIDE_STEPS = [
@@ -82,14 +83,30 @@ const GUIDE_STEPS = [
       "🌟 Pan systematically - don't miss any areas",
       "🌟 Watch your lifes - 3 wrong clicks = game over!"
     ]
+  },
+  {
+    id: 8,
+    title: "Puppy Designs to Find 🐾",
+    icon: "🐾",
+    content: "These are all the puppy designs hidden throughout the game! Each level features these unique puppies camouflaged in the scenes. Can you find them all?",
+    tips: []
   }
 ];
 
-export const ExplorerGuide: React.FC<ExplorerGuideProps> = ({ activeTheme, onClose }) => {
+export const ExplorerGuide: React.FC<ExplorerGuideProps> = ({ activeTheme, onClose, onOpenPuppyDesigns }) => {
   const [currentStep, setCurrentStep] = useState(0);
   const currentGuide = GUIDE_STEPS[currentStep];
   const isFirstStep = currentStep === 0;
   const isLastStep = currentStep === GUIDE_STEPS.length - 1;
+
+  const handleExplorerGuideLink = () => {
+    window.open('https://findmypuppy.onrender.com/explorer-guide', '_blank', 'noopener,noreferrer');
+  };
+
+  const handleAllPuppyDesigns = () => {
+    onClose();
+    onOpenPuppyDesigns?.();
+  };
 
   const handleNext = () => {
     if (isLastStep) {
@@ -194,6 +211,35 @@ export const ExplorerGuide: React.FC<ExplorerGuideProps> = ({ activeTheme, onClo
                   <i className="fas fa-check-circle text-green-500"></i>
                 </div>
                 <p className="text-xs text-center text-slate-600 font-medium">Tap puppies to find them!</p>
+              </div>
+            )}
+
+            {/* Step 8: Puppy Designs */}
+            {currentStep === 7 && (
+              <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl p-4 border-2 border-purple-200">
+                <p className="text-sm text-slate-700 mb-4 text-center">
+                  Want to learn more? Check out the full Explorer's Guide page or view all puppy designs!
+                </p>
+                <div className="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={handleExplorerGuideLink}
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold shadow-md transition-colors"
+                  >
+                    <i className="fas fa-book-open" aria-hidden />
+                    Explorer Guide Page
+                  </button>
+                  {onOpenPuppyDesigns && (
+                    <button
+                      type="button"
+                      onClick={handleAllPuppyDesigns}
+                      className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold shadow-md transition-colors"
+                    >
+                      <i className="fas fa-images" aria-hidden />
+                      View All Puppy Designs
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>

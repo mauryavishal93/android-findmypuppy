@@ -1,6 +1,7 @@
 import React from 'react';
 import { PaymentStatus } from '../../types/payment';
 import { PriceOffer } from '../../services/db';
+import { ModalBase, ModalContent } from './ModalBase';
 
 interface PaymentModalProps {
   onClose: () => void;
@@ -37,8 +38,8 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   
   if (paymentStatus === 'processing' || paymentStatus === 'verifying') {
     return (
-      <div className="absolute inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
-        <div className="bg-white rounded-3xl p-8 w-full max-w-xs text-center shadow-2xl animate-fade-in mx-4">
+      <ModalBase isOpen={true} onClose={onCancelPayment} maxWidth="sm" showCloseButton={paymentStatus === 'processing'}>
+        <ModalContent className="p-8 text-center">
            <div className="animate-spin text-4xl text-brand mb-4 mx-auto w-min"><i className="fas fa-circle-notch"></i></div>
            <h3 className="text-xl font-bold text-slate-800 mb-2">
              {paymentStatus === 'verifying' ? 'Verifying...' : 'Processing...'}
@@ -53,15 +54,15 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                Cancel
              </button>
            )}
-        </div>
-      </div>
+        </ModalContent>
+      </ModalBase>
     );
   }
 
   // Idle State
   return (
-    <div className="absolute inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
-      <div className="bg-white rounded-3xl p-6 w-full max-w-xs text-center shadow-2xl relative mx-4 max-h-[90vh] overflow-y-auto overflow-x-hidden hide-scrollbar">
+    <ModalBase isOpen={true} onClose={onClose} maxWidth="sm" showCloseButton={false}>
+      <ModalContent className="p-6 text-center">
         <div className="w-16 h-16 bg-brand-light rounded-full flex items-center justify-center mx-auto mb-4 shrink-0">
            <i className="fas fa-lightbulb text-3xl text-brand-dark animate-bounce-short"></i>
         </div>
@@ -143,8 +144,8 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
         >
           No thanks
         </button>
-      </div>
-    </div>
+      </ModalContent>
+    </ModalBase>
   );
 };
 

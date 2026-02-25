@@ -1,5 +1,6 @@
 import React from 'react';
 import { APP_VERSION } from '../../constants/appVersion';
+import { ModalBase, ModalHeader, ModalContent, ModalFooter } from './ModalBase';
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -25,25 +26,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onHapticIntensityChange
 }) => {
   return (
-    <div className="absolute inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
-      <div className="bg-white rounded-[2rem] w-full max-w-sm shadow-2xl relative border-4 border-white overflow-hidden">
-        {/* Header */}
-        <div className="bg-gradient-to-r from-slate-100 to-slate-200 p-6 pb-4 border-b border-slate-200">
-          <div className="flex justify-between items-center">
-            <h3 className="text-2xl font-black text-slate-800 flex items-center gap-2">
-              <i className="fas fa-cog text-slate-600"></i> Settings
-            </h3>
-            <button 
-              onClick={onClose}
-              className="w-8 h-8 rounded-full bg-white/80 text-slate-400 hover:bg-white hover:text-slate-600 flex items-center justify-center transition-colors shadow-sm"
-            >
-              <i className="fas fa-times"></i>
-            </button>
-          </div>
-        </div>
-
-        {/* Content */}
-        <div className="p-6 space-y-6">
+    <ModalBase isOpen={true} onClose={onClose} maxWidth="sm">
+      <ModalHeader className="bg-gradient-to-r from-slate-100 to-slate-200 p-6 pb-4 border-b border-slate-200">
+        <h3 className="text-2xl font-black text-slate-800 flex items-center gap-2">
+          <i className="fas fa-cog text-slate-600"></i> Settings
+        </h3>
+      </ModalHeader>
+      <ModalContent className="p-6 space-y-6">
           
           {/* Audio Settings */}
           <div className="space-y-4">
@@ -140,14 +129,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                <span className="text-sm font-bold text-slate-400">{APP_VERSION}</span>
              </div>
           </div>
-
-        </div>
-        
-        {/* Footer */}
-        <div className="bg-slate-50 p-4 text-center border-t border-slate-200">
-          <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Find My Puppy</p>
-        </div>
-      </div>
-    </div>
+      </ModalContent>
+      <ModalFooter className="bg-slate-50 p-4 text-center border-t border-slate-200">
+        <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Find My Puppy</p>
+      </ModalFooter>
+    </ModalBase>
   );
 };

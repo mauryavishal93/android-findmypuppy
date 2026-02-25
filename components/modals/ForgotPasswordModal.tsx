@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ThemeConfig } from '../../types';
 import { db } from '../../services/db';
+import { ModalBase, ModalHeader, ModalContent } from './ModalBase';
 
 interface ForgotPasswordModalProps {
   isOpen: boolean;
@@ -63,26 +64,16 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-      <div className={`relative w-full max-w-[400px] rounded-[2rem] overflow-hidden shadow-2xl border-4 border-white/50 animate-pop-in ${activeTheme.cardBg} ${activeTheme.text}`}>
-        
-        {/* Header */}
-        <div className="p-4 text-center border-b border-white/10 relative">
-          <button 
-            onClick={handleClose}
-            className="absolute right-4 top-4 w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 transition-colors"
-          >
-            <i className="fas fa-times text-xs"></i>
-          </button>
-          
-          <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center mx-auto mb-2 shadow-inner">
-            <i className="fas fa-key text-xl"></i>
+    <ModalBase isOpen={isOpen} onClose={handleClose} maxWidth="sm">
+      <ModalHeader className="bg-gradient-to-r from-blue-100 to-indigo-100 p-6 pb-4 border-b border-blue-200">
+        <div className="text-center">
+          <div className="w-12 h-12 bg-white/80 rounded-xl flex items-center justify-center mx-auto mb-2 shadow-sm">
+            <i className="fas fa-key text-xl text-blue-600"></i>
           </div>
-          <h2 className="text-xl font-black">Forgot Password</h2>
+          <h2 className="text-xl font-black text-slate-800">Forgot Password</h2>
         </div>
-
-        {/* Content */}
-        <div className="p-6 space-y-4">
+      </ModalHeader>
+      <ModalContent className="p-6 space-y-4">
           {!success ? (
             <>
               <p className="text-sm text-center opacity-80">
@@ -152,9 +143,8 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
               </button>
             </div>
           )}
-        </div>
-      </div>
-    </div>
+      </ModalContent>
+    </ModalBase>
   );
 };
 

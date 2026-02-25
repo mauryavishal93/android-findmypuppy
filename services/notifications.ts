@@ -190,8 +190,8 @@ export async function scheduleNotifications(): Promise<void> {
           repeats: false
         },
         sound: 'default',
-        smallIcon: 'ic_launcher',
-        iconColor: '#4F46E5'
+        smallIcon: 'ic_notification',
+        iconColor: '#943DDC'
       });
     }
 
@@ -260,8 +260,8 @@ export async function scheduleRecurringNotifications(): Promise<void> {
           every: 'day'
         },
         sound: 'default',
-        smallIcon: 'ic_launcher',
-        iconColor: '#4F46E5'
+        smallIcon: 'ic_notification',
+        iconColor: '#943DDC'
       });
     });
 

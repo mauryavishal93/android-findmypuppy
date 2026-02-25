@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { PurchaseHistory } from '../../services/db';
 import { db } from '../../services/db';
 import { ThemeConfig } from '../../types';
+import { ModalBase, ModalHeader, ModalContent, ModalFooter } from './ModalBase';
 
 interface PurchaseHistoryModalProps {
   onClose: () => void;
@@ -57,24 +58,14 @@ export const PurchaseHistoryModal: React.FC<PurchaseHistoryModalProps> = ({
   };
 
   return (
-    <div className="absolute inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-start justify-center pt-4 px-4 animate-fade-in overflow-hidden">
-      <div className={`w-full max-w-md ${activeTheme.cardBg} rounded-3xl shadow-2xl border-2 border-white/50 overflow-hidden mt-8 mb-4 max-h-[85vh] flex flex-col`}>
-        {/* Header */}
-        <div className={`${activeTheme.headerBg} px-6 py-4 flex items-center justify-between border-b border-white/20`}>
-          <h2 className={`text-xl font-black ${activeTheme.text} flex items-center gap-2`}>
-            <i className="fas fa-history text-lg"></i>
-            Buy History
-          </h2>
-          <button
-            onClick={onClose}
-            className={`w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors ${activeTheme.text}`}
-          >
-            <i className="fas fa-times"></i>
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 hide-scrollbar">
+    <ModalBase isOpen={true} onClose={onClose} maxWidth="md">
+      <ModalHeader className="bg-gradient-to-r from-indigo-100 to-purple-100 p-6 pb-4 border-b border-indigo-200">
+        <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">
+          <i className="fas fa-history text-lg"></i>
+          Buy History
+        </h2>
+      </ModalHeader>
+      <ModalContent className="px-6 py-4">
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <div className="flex flex-col items-center gap-3">
@@ -146,19 +137,16 @@ export const PurchaseHistoryModal: React.FC<PurchaseHistoryModalProps> = ({
               ))}
             </div>
           )}
-        </div>
-
-        {/* Footer */}
-        <div className={`${activeTheme.headerBg} px-6 py-4 border-t border-white/20`}>
-          <button
-            onClick={onClose}
-            className={`w-full ${activeTheme.button} text-white font-bold py-3 rounded-xl shadow-lg hover:opacity-90 transition-all`}
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
+      </ModalContent>
+      <ModalFooter className="px-6 py-4 border-t border-slate-200">
+        <button
+          onClick={onClose}
+          className={`w-full ${activeTheme.button} text-white font-bold py-3 rounded-xl shadow-lg hover:opacity-90 transition-all`}
+        >
+          Close
+        </button>
+      </ModalFooter>
+    </ModalBase>
   );
 };
 

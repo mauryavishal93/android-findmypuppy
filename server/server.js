@@ -1715,7 +1715,7 @@ app.post('/api/daily-checkin/complete', async (req, res) => {
 
     // Calculate rewards based on streak milestones (only on milestone day)
     let hintsEarned = 0;
-    let pointsEarned = 0;
+    let pointsEarned = 5; // +5 points every check-in (base daily reward)
     let milestone = null;
     
     // 7 days streak = 10 hints (only on day 7)
@@ -1723,9 +1723,9 @@ app.post('/api/daily-checkin/complete', async (req, res) => {
       hintsEarned = 10;
       milestone = '7days';
     }
-    // 30 days streak = 50 points (only on day 30)
+    // 30 days streak = 50 hints (only on day 30)
     else if (newStreak === 30) {
-      pointsEarned = 50;
+      hintsEarned = 50;
       milestone = '30days';
     }
     // 365 days (1 year) streak = 1000 hints (only on day 365)
@@ -1744,9 +1744,8 @@ app.post('/api/daily-checkin/complete', async (req, res) => {
     if (hintsEarned > 0) {
       user.hints = (user.hints || 0) + hintsEarned;
     }
-    if (pointsEarned > 0) {
-      user.points = (user.points || 0) + pointsEarned;
-    }
+    // Always award base 5 points
+    user.points = (user.points || 0) + pointsEarned;
 
     await user.save();
 
@@ -1754,8 +1753,6 @@ app.post('/api/daily-checkin/complete', async (req, res) => {
       success: true,
       message: hintsEarned > 0 
         ? `Puppy fed! 🎉 +${hintsEarned} hints earned!`
-        : pointsEarned > 0
-        ? `Puppy fed! 🎉 +${pointsEarned} points earned!`
         : usedFreeze
         ? "Puppy fed! 🧊 Streak saved with freeze!"
         : "Puppy fed! 🐕",

@@ -69,13 +69,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const difficulties = [Difficulty.EASY, Difficulty.MEDIUM, Difficulty.HARD];
 
   // Daily Puzzle Hook
-  const { hasCompletedToday: dailyPuzzleCompletedToday, loading: dailyPuzzleLoading, completePuzzle } = useDailyPuzzle(progress.playerName || null);
+  const { hasCompletedToday: dailyPuzzleCompletedToday, statusLoaded: puzzleStatusLoaded, loading: dailyPuzzleLoading, completePuzzle, loadStatus: reloadPuzzle } = useDailyPuzzle(progress.playerName || null);
 
   // Daily Check-In Hook
   const {
     checkInData,
     loading: checkInLoading,
-    completeCheckIn
+    completeCheckIn,
+    loadStatus: reloadCheckIn
   } = useDailyCheckIn({
     username: progress.playerName || null,
     onPointsUpdated,
@@ -83,9 +84,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
   });
 
   const handleDailyCheckInClick = () => {
-    if (!checkInData?.hasCheckedInToday) {
-      setShowPuppyFeeding(true);
-    }
+    // Always open so user can view their puppy even after checking in
+    setShowPuppyFeeding(true);
   };
 
   const handleFeedPuppy = async () => {
@@ -97,6 +97,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
     if (res.success && res.totalHints !== undefined && onHintsUpdated) onHintsUpdated(res.totalHints);
     return res;
   };
+
+  // Re-fetch daily status every time the home view becomes active or player changes.
+  // This ensures buttons are never stuck in "completed" state from a previous session.
+  useEffect(() => {
+    if (!progress.playerName || !isActiveView) return;
+    reloadCheckIn();
+    reloadPuzzle();
+  }, [progress.playerName, isActiveView]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (progress.playerName) {
@@ -151,7 +159,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
     }
   };
 
-  const dailyGameLabel = dailyPuzzleCompletedToday ? '✓ Jump Done' : '🐕 Puppy Jump';
   
   const handleNextDifficulty = () => {
     setPrevIndex(currentDifficultyIndex);
@@ -378,39 +385,68 @@ export const HomeView: React.FC<HomeViewProps> = ({
               </div>
             )}
 
-            {/* Daily Buttons Row - Moved above Carousel */}
+            {/* Daily Buttons Row */}
             {progress.playerName && (
               <div className="grid grid-cols-2 gap-2 h-12 w-full shrink-0">
-                <div className="flex-1 h-full relative">
+
+                {/* ── Daily Check-In button ── */}
+                <div className="relative h-full">
                   <DailyCheckInButton
                     checkInData={checkInData}
                     loading={checkInLoading}
                     onClick={handleDailyCheckInClick}
                     activeTheme={activeTheme}
                   />
+                  {/* pointer-events-none: badge must never intercept taps */}
                   {!checkInData?.hasCheckedInToday && (
-                    <div className="absolute -top-1 -right-1 z-20 bg-white rounded-full w-5 h-5 flex items-center justify-center shadow-md border border-yellow-200 animate-bounce">
-                       <span className="text-xs">💡</span>
+                    <div className="pointer-events-none absolute -top-1 -right-1 z-20 bg-white rounded-full w-5 h-5 flex items-center justify-center shadow-md border border-yellow-200 animate-bounce">
+                      <span className="text-xs">💡</span>
                     </div>
                   )}
                 </div>
-                <button
-                  onClick={() => setShowDailyPuzzle(true)}
-                  disabled={dailyPuzzleCompletedToday || dailyPuzzleLoading}
-                  className={`flex-1 h-full rounded-xl p-1 border transition-all text-center flex flex-col items-center justify-center relative overflow-visible ${
-                    dailyPuzzleCompletedToday
-                      ? 'opacity-70 cursor-not-allowed border-purple-200 bg-purple-50 text-purple-800'
-                      : 'border-purple-300/50 bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-md active:scale-95'
-                  }`}
-                >
-                  <span className="text-xs font-bold leading-none block mb-0.5">{dailyGameLabel}</span>
-                  <span className="text-[9px] opacity-90 leading-none">{dailyPuzzleCompletedToday ? 'Done' : 'Play & Earn'}</span>
-                  {!dailyPuzzleCompletedToday && (
-                    <div className="absolute -top-1 -right-1 z-20 bg-white rounded-full w-5 h-5 flex items-center justify-center shadow-md border border-yellow-200 animate-bounce">
-                       <span className="text-xs">💡</span>
+
+                {/* ── Puppy Jump / Daily Puzzle button ── */}
+                <div className="relative h-full">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Only open if status is loaded AND game not yet played today
+                      if (puzzleStatusLoaded && !dailyPuzzleCompletedToday && !dailyPuzzleLoading) {
+                        setShowDailyPuzzle(true);
+                      }
+                    }}
+                    className={`
+                      w-full h-full rounded-xl p-1 border
+                      flex flex-col items-center justify-center
+                      transition-all duration-200 select-none touch-manipulation
+                      ${dailyPuzzleCompletedToday
+                        ? 'opacity-60 border-purple-200 bg-purple-50 text-purple-800 cursor-not-allowed'
+                        : !puzzleStatusLoaded || dailyPuzzleLoading
+                        ? 'opacity-50 border-purple-200 bg-purple-100 text-purple-400 cursor-wait'
+                        : 'border-purple-300/50 bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-md cursor-pointer active:scale-95'
+                      }
+                    `}
+                    style={{ WebkitTapHighlightColor: 'transparent', userSelect: 'none' }}
+                  >
+                    <span className="pointer-events-none text-xs font-bold leading-none block mb-0.5">
+                      {!puzzleStatusLoaded || dailyPuzzleLoading
+                        ? '⏳ Loading...'
+                        : dailyPuzzleCompletedToday
+                        ? '✓ Jump Done'
+                        : '🐕 Puppy Jump'}
+                    </span>
+                    <span className="pointer-events-none text-[9px] opacity-90 leading-none">
+                      {dailyPuzzleCompletedToday ? 'Done for today' : (!puzzleStatusLoaded ? '' : 'Play & Earn')}
+                    </span>
+                  </button>
+                  {/* badge only shown when game is available to play */}
+                  {puzzleStatusLoaded && !dailyPuzzleCompletedToday && !dailyPuzzleLoading && (
+                    <div className="pointer-events-none absolute -top-1 -right-1 z-20 bg-white rounded-full w-5 h-5 flex items-center justify-center shadow-md border border-yellow-200 animate-bounce">
+                      <span className="text-xs">💡</span>
                     </div>
                   )}
-                </button>
+                </div>
+
               </div>
             )}
           </div>
@@ -621,6 +657,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             puppyAge={checkInData.puppyAge}
             puppySize={checkInData.puppySize}
             streak={checkInData.checkInStreak}
+            hasCheckedInToday={checkInData.hasCheckedInToday}
           />
         )}
 

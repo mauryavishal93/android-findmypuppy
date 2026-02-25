@@ -2,7 +2,8 @@ import { useState, useCallback, useEffect } from 'react';
 import { db } from '../services/db';
 
 export function useDailyPuzzle(username: string | null) {
-  const [hasCompletedToday, setHasCompletedToday] = useState(false);
+  // null = not yet loaded from server; never assume playable until server confirms
+  const [hasCompletedToday, setHasCompletedToday] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
 
   const loadStatus = useCallback(async () => {
@@ -12,7 +13,8 @@ export function useDailyPuzzle(username: string | null) {
       const res = await db.getDailyPuzzleStatus(username);
       if (res.success) setHasCompletedToday(res.hasCompletedToday ?? false);
     } catch {
-      // ignore
+      // On error default to false so user can still try
+      setHasCompletedToday(false);
     } finally {
       setLoading(false);
     }
@@ -42,5 +44,5 @@ export function useDailyPuzzle(username: string | null) {
     [username]
   );
 
-  return { hasCompletedToday, loading, loadStatus, completePuzzle };
+  return { hasCompletedToday: hasCompletedToday ?? false, statusLoaded: hasCompletedToday !== null, loading, loadStatus, completePuzzle };
 }

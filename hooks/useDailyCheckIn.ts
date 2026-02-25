@@ -9,6 +9,7 @@ interface UseDailyCheckInProps {
 }
 
 export const useDailyCheckIn = ({ username, onPointsUpdated, onHintsUpdated }: UseDailyCheckInProps) => {
+  // Start as null (unknown) — never assume completed until server confirms
   const [checkInData, setCheckInData] = useState<DailyCheckInData | null>(null);
   const [loading, setLoading] = useState(false);
 
